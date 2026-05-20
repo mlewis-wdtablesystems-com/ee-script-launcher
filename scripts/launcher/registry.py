@@ -848,6 +848,44 @@ FUNCTIONS: list[FunctionSpec] = [
         ),
     ),
     FunctionSpec(
+        id="altium_bom_export_workflow",
+        group="Altium",
+        icon="✅",
+        title="BOM export check and CSV",
+        description=(
+            "On the PJM sheet (default sheet 2), checks each 01-PJM Part_Number against "
+            "Arena (item description or name) and optional Name vs 03-Description General "
+            "for 098-12/13 lines — same rules as the former Arena BOM export check. "
+            "When Create CSV is enabled, runs Convert BOM (Excel -> CSV) v2 after all "
+            "checks pass. If checks fail, you can still choose Proceed with CSV Creation."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="Part number",
+                placeholder="241-10-001",
+                required=True,
+            ),
+            FieldSpec(
+                name="create_csv",
+                label="Create CSV",
+                kind="checkbox",
+                default="1",
+            ),
+        ],
+        background=False,
+        proceed_after_fail=ProceedAfterFailSpec(
+            label="Proceed with CSV Creation?",
+            target_id="convert_bom_to_csv_auto",
+        ),
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Check-AndUploadAltiumBomExport.ps1",
+            "-PartNumber",
+            v["part_number"],
+            *_optional_switch(v, "create_csv", "-CreateCsv", default=True),
+        ),
+    ),
+    FunctionSpec(
         id="altium_pickplace_zip",
         group="Altium",
         icon="🏀",
@@ -972,44 +1010,6 @@ FUNCTIONS: list[FunctionSpec] = [
         build_command=lambda v: _ps(
             SCRIPTS_DIR / "Convert-AltiumBomAuto.ps1",
             "-PartNumber", v["part_number"],
-        ),
-    ),
-    FunctionSpec(
-        id="altium_bom_export_workflow",
-        group="Altium",
-        icon="✅",
-        title="BOM export check and CSV",
-        description=(
-            "On the PJM sheet (default sheet 2), checks each 01-PJM Part_Number against "
-            "Arena (item description or name) and optional Name vs 03-Description General "
-            "for 098-12/13 lines — same rules as the former Arena BOM export check. "
-            "When Create CSV is enabled, runs Convert BOM (Excel -> CSV) v2 after all "
-            "checks pass. If checks fail, you can still choose Proceed with CSV Creation."
-        ),
-        fields=[
-            FieldSpec(
-                name="part_number",
-                label="Part number",
-                placeholder="241-10-001",
-                required=True,
-            ),
-            FieldSpec(
-                name="create_csv",
-                label="Create CSV",
-                kind="checkbox",
-                default="1",
-            ),
-        ],
-        background=False,
-        proceed_after_fail=ProceedAfterFailSpec(
-            label="Proceed with CSV Creation?",
-            target_id="convert_bom_to_csv_auto",
-        ),
-        build_command=lambda v: _ps(
-            SCRIPTS_DIR / "Check-AndUploadAltiumBomExport.ps1",
-            "-PartNumber",
-            v["part_number"],
-            *_optional_switch(v, "create_csv", "-CreateCsv", default=True),
         ),
     ),
     FunctionSpec(
