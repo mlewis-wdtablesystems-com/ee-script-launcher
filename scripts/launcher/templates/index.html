@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Script launcher</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Script launcher</h1>
+    <div class="ws">
+      <label for="workspace">Arena workspace</label>
+      <select id="workspace" data-default="{{ default_workspace }}">
+        {% for w in workspaces %}
+          <option value="{{ w.id }}" data-workspace-id="{{ w.workspace_id }}">
+            {{ w.label }} ({{ w.workspace_id }})
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="env">
+      <span>Env:</span>
+      {% for k, ok in arena_status.items() %}
+        <span class="pill {{ 'ok' if ok else 'warn' }}" title="{{ k }}{{ '' if ok else ' is not set' }}">
+          {{ k }}{{ ' &check;' if ok else ' &times;' }}
+        </span>
+      {% endfor %}
+    </div>
+  </header>
+
+  <div class="layout">
+    <main>
+      <nav class="tabs" id="group-tabs" role="tablist">
+        {% for group, fns in groups %}
+          <button type="button" class="tab" role="tab" data-group="{{ group }}">
+            {{ group }} <span class="tab-count">{{ fns|length }}</span>
+          </button>
+        {% endfor %}
+      </nav>
+
+      {% for group, fns in groups %}
+        <section class="group" data-group="{{ group }}">
+          <h2 class="group-heading">{{ group }}</h2>
+          <div class="cards">
+            {% for fn in fns %}
+              <article
+                class="card"
+                data-fn="{{ fn.id }}"
+                data-multipart="{{ '1' if fn.has_file_field else '0' }}"
+                data-discovery="{{ '1' if fn.has_discovery else '0' }}"
+                data-duplicate-prompt="{{ '1' if fn.duplicate_upload_prompt else '0' }}"
+                data-zip-overwrite-prompt="{{ '1' if fn.zip_overwrite_prompt else '0' }}"
+                data-discovery-prefill="{{ '1' if fn.discovery_prefill else '0' }}"
+              >
+                <header class="card-head">
+                  <h3>{% if fn.icon %}<span class="card-icon">{{ fn.icon }}</span> {% endif %}{{ fn.title }}</h3>
+                  <div class="head-pills">
+                    {% if fn.background %}<span class="pill bg">background</span>{% endif %}
+                    {% if fn.has_file_field %}<span class="pill bg">upload</span>{% endif %}
+                    {% if fn.has_discovery %}<span class="pill bg">discovery</span>{% endif %}
+                  </div>
+                </header>
+                <p class="desc">{{ fn.description }}</p>
+
+                <form class="run-form">
+                  {% for f in fn.fields %}
+                    {% if f.kind == 'checkbox' %}
+                    <label class="checkbox-row">
+                      <input
+                        type="checkbox"
+                        name="{{ f.name }}"
+                        value="1"
+                        {% if f.default %}checked{% endif %}
+                      />
+                      <span class="checkbox-label">{{ f.label }}</span>
+                    </label>
+                    {% else %}
+                    <label class="field">
+                      <span>{{ f.label }}{% if f.required %} <em>*</em>{% endif %}</span>
+                      {% if f.kind == 'select' %}
+                        <select name="{{ f.name }}">
+                          {% for o in f.options %}
+                            <option value="{{ o }}" {% if o == f.default %}selected{% endif %}>{{ o }}</option>
+                          {% endfor %}
+                        </select>
+                      {% elif f.kind == 'textarea' %}
+                        <textarea name="{{ f.name }}" rows="3" placeholder="{{ f.placeholder }}">{{ f.default }}</textarea>
+                      {% elif f.kind == 'file' %}
+                        <input
+                          type="file"
+                          name="{{ f.name }}"
+                          {% if f.accept %}accept="{{ f.accept }}"{% endif %}
+                          {% if f.required %}required{% endif %}
+                        />
+                      {% elif f.kind == 'loadable_select' %}
+                        <div class="loadable-select" data-name="{{ f.name }}" data-meta="{{ f.discovery_meta|join(',') }}">
+                          <select name="{{ f.name }}" disabled {% if f.required %}required{% endif %}>
+                            <option value="">— click "Load files" first —</option>
+                          </select>
+                          <button type="button" class="discover-btn">Load files</button>
+                        </div>
+                      {% else %}
+                        <input
+                          type="text"
+                          name="{{ f.name }}"
+                          placeholder="{{ f.placeholder }}"
+                          value="{{ f.default }}"
+                          {% if f.required %}required{% endif %}
+                          autocomplete="off"
+                          spellcheck="false"
+                        />
+                      {% endif %}
+                    </label>
+                    {% endif %}
+                  {% endfor %}
+                  <div class="actions">
+                    {% if fn.run_actions %}
+                      {% for a in fn.run_actions %}
+                        <button type="button" class="run run-action" data-run-action="{{ a.id }}">{{ a.label }}</button>
+                      {% endfor %}
+                    {% else %}
+                      <button type="submit" class="run">Run</button>
+                    {% endif %}
+                    <span class="status" aria-live="polite"></span>
+                  </div>
+                  {% if fn.discovery_prefill and fn.has_discovery %}
+                  <div class="prefill-row">
+                    <button type="button" class="discover-prefill run">Load name &amp; description from Arena</button>
+                  </div>
+                  {% endif %}
+                </form>
+
+                {% if fn.duplicate_upload_prompt %}
+                <div class="duplicate-upload-prompt" hidden>
+                  <p class="duplicate-upload-msg">File with this File Name Already Exists, Upload Anyway?</p>
+                  <div class="duplicate-upload-actions">
+                    <button type="button" class="run dup-yes">Yes</button>
+                    <button type="button" class="run dup-no">No</button>
+                  </div>
+                </div>
+                {% endif %}
+
+                {% if fn.zip_overwrite_prompt %}
+                <div class="zip-overwrite-prompt" hidden>
+                  <p class="zip-overwrite-msg">An existing zip file will be overwritten.</p>
+                  <div class="zip-overwrite-actions">
+                    <button type="button" class="run zip-overwrite-proceed">Proceed with Zip Overwrite</button>
+                    <button type="button" class="run zip-overwrite-cancel">Cancel</button>
+                  </div>
+                </div>
+                {% endif %}
+
+                <div class="output" hidden>
+                  <div class="cmd"></div>
+                  <pre class="stdout"></pre>
+                  {% if fn.proceed_after_fail %}
+                  <div class="proceed-after-fail" hidden>
+                    <button
+                      type="button"
+                      class="run"
+                      data-proceed-target="{{ fn.proceed_after_fail.target_id }}"
+                    >{{ fn.proceed_after_fail.label }}</button>
+                  </div>
+                  {% endif %}
+                  <pre class="stderr"></pre>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+      {% endfor %}
+
+      <p class="footer">
+        Add a script: edit
+        <code>scripts\launcher\registry.py</code> and refresh.
+        API docs: <a href="/api/docs">/api/docs</a>.
+      </p>
+    </main>
+
+    <aside class="recent" id="recent-pn-panel">
+      <header class="recent-head">
+        <h2>Recent part numbers</h2>
+        <button type="button" id="recent-clear" title="Clear list">clear</button>
+      </header>
+      <p class="recent-hint">Shows your 15 most recent part numbers (newest first). The latest is filled into every part-number field when you open this page.</p>
+      <ul id="recent-pn-list" class="recent-list"></ul>
+    </aside>
+  </div>
+
+  <script>
+    // ----- group tabs (persisted) -----
+    const TAB_KEY = "launcher.active_group";
+    const tabs = [...document.querySelectorAll("#group-tabs .tab")];
+    const sections = [...document.querySelectorAll("section.group")];
+    function activateGroup(group) {
+      let matched = false;
+      for (const t of tabs) {
+        const on = t.dataset.group === group;
+        t.classList.toggle("active", on);
+        t.setAttribute("aria-selected", on ? "true" : "false");
+        if (on) matched = true;
+      }
+      for (const s of sections) {
+        s.hidden = s.dataset.group !== group;
+      }
+      if (matched) localStorage.setItem(TAB_KEY, group);
+    }
+    {
+      const stored = localStorage.getItem(TAB_KEY);
+      const initial = stored && tabs.some((t) => t.dataset.group === stored)
+        ? stored
+        : (tabs[0] && tabs[0].dataset.group);
+      if (initial) activateGroup(initial);
+    }
+    for (const t of tabs) {
+      t.addEventListener("click", () => activateGroup(t.dataset.group));
+    }
+
+    // ----- workspace selector (persisted) -----
+    const workspaceSel = document.getElementById("workspace");
+    const WS_KEY = "launcher.workspace";
+    {
+      const stored = localStorage.getItem(WS_KEY);
+      const initial = stored || workspaceSel.dataset.default || workspaceSel.value;
+      if ([...workspaceSel.options].some((o) => o.value === initial)) {
+        workspaceSel.value = initial;
+      }
+      const reflectWorkspace = () => {
+        workspaceSel.dataset.current = workspaceSel.value;
+        document.body.dataset.workspace = workspaceSel.value;
+      };
+      reflectWorkspace();
+      workspaceSel.addEventListener("change", () => {
+        localStorage.setItem(WS_KEY, workspaceSel.value);
+        reflectWorkspace();
+      });
+    }
+
+    // ----- recent part numbers -----
+    const RECENT_KEY = "launcher.recent_part_numbers";
+    const LAST_PN_KEY = "launcher.last_part_number";
+    const RECENT_LIMIT = 15;
+    const PART_NUMBER_INPUT_NAMES = ["part_number", "old_part_number", "new_part_number"];
+    const recentList = document.getElementById("recent-pn-list");
+    const recentClearBtn = document.getElementById("recent-clear");
+
+    function loadRecents() {
+      try {
+        const raw = localStorage.getItem(RECENT_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    }
+    function saveRecents(arr) {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(arr.slice(-RECENT_LIMIT)));
+    }
+    function saveLastPartNumber(value) {
+      const v = (value || "").trim();
+      if (!v) return;
+      localStorage.setItem(LAST_PN_KEY, v);
+    }
+    function getLastPartNumber() {
+      const last = (localStorage.getItem(LAST_PN_KEY) || "").trim();
+      if (last) return last;
+      const arr = loadRecents();
+      return arr.length ? arr[arr.length - 1] : "";
+    }
+    function pushRecent(value) {
+      const v = (value || "").trim();
+      if (!v) return;
+      saveLastPartNumber(v);
+      const arr = loadRecents().filter((x) => x !== v);
+      arr.push(v);
+      saveRecents(arr);
+      renderRecents();
+    }
+    function fillAllPartNumberFields(value) {
+      const v = (value || "").trim();
+      if (!v) return;
+      document.querySelectorAll('input[name="part_number"]').forEach((el) => {
+        el.value = v;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    }
+    function getPartNumberFromForm(formEl) {
+      for (const name of PART_NUMBER_INPUT_NAMES) {
+        const el = formEl.querySelector(`input[name="${name}"]`);
+        const v = el && el.value ? el.value.trim() : "";
+        if (v) return v;
+      }
+      return "";
+    }
+    /** Same as clicking a recent part number: fill every part-number field and save to recents. */
+    function rememberAndPropagatePartNumber(formEl) {
+      const pnTrim = getPartNumberFromForm(formEl);
+      if (!pnTrim) return;
+      fillAllPartNumberFields(pnTrim);
+      pushRecent(pnTrim);
+    }
+    function renderRecents() {
+      let stored = loadRecents();
+      if (stored.length > RECENT_LIMIT) {
+        stored = stored.slice(-RECENT_LIMIT);
+        saveRecents(stored);
+      }
+      const arr = stored.slice().reverse();
+      recentList.innerHTML = "";
+      if (!arr.length) {
+        const li = document.createElement("li");
+        li.className = "recent-empty";
+        li.textContent = "(none yet)";
+        recentList.appendChild(li);
+        return;
+      }
+      for (const value of arr) {
+        const li = document.createElement("li");
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "recent-item";
+        btn.textContent = value;
+        btn.title = `Use ${value} in all part-number fields`;
+        btn.addEventListener("click", () => {
+          fillAllPartNumberFields(value);
+          pushRecent(value);
+        });
+        li.appendChild(btn);
+        recentList.appendChild(li);
+      }
+    }
+    recentClearBtn.addEventListener("click", () => {
+      if (confirm("Clear the recent part numbers list?")) {
+        localStorage.removeItem(RECENT_KEY);
+        localStorage.removeItem(LAST_PN_KEY);
+        renderRecents();
+      }
+    });
+    renderRecents();
+    {
+      const lastPn = getLastPartNumber();
+      if (lastPn) fillAllPartNumberFields(lastPn);
+    }
+
+    function readJsonInputsFromForm(formEl) {
+      const inputs = {};
+      for (const el of formEl.querySelectorAll("input, select, textarea")) {
+        if (!el.name) continue;
+        if (el.type === "checkbox") {
+          inputs[el.name] = el.checked ? "1" : "0";
+          continue;
+        }
+        inputs[el.name] = el.value;
+        if (el.tagName === "SELECT" && el.selectedOptions[0]) {
+          for (const [k, v] of Object.entries(el.selectedOptions[0].dataset)) {
+            inputs[`${el.name}__${k}`] = v;
+          }
+        }
+      }
+      return inputs;
+    }
+
+    function duplicatePromptFromStdout(stdout) {
+      const marker = "---DUPLICATE-FILENAME-PROMPT---";
+      const s = stdout || "";
+      const i = s.indexOf(marker);
+      if (i < 0) return null;
+      const tail = s.slice(i + marker.length).trim();
+      const line = tail.split(/\r?\n/).find((l) => /^\s*\{/.test(l));
+      if (!line) return { duplicate: true };
+      try {
+        return JSON.parse(line.trim());
+      } catch {
+        return { duplicate: true };
+      }
+    }
+
+    function zipOverwritePromptFromStdout(stdout) {
+      const marker = "---ZIP-OVERWRITE-PROMPT---";
+      const s = stdout || "";
+      const i = s.indexOf(marker);
+      if (i < 0) return null;
+      const tail = s.slice(i + marker.length).trim();
+      const line = tail.split(/\r?\n/).find((l) => /^\s*\{/.test(l));
+      if (!line) return { zipOverwrite: true };
+      try {
+        return JSON.parse(line.trim());
+      } catch {
+        return { zipOverwrite: true };
+      }
+    }
+
+    // ----- per-card setup -----
+    for (const card of document.querySelectorAll(".card")) {
+      const fnId = card.dataset.fn;
+      const isMultipart = card.dataset.multipart === "1";
+      const hasDiscovery = card.dataset.discovery === "1";
+      const form = card.querySelector(".run-form");
+      const status = card.querySelector(".status");
+      const output = card.querySelector(".output");
+      const cmdEl = card.querySelector(".cmd");
+      const outEl = card.querySelector(".stdout");
+      const errEl = card.querySelector(".stderr");
+      const submitRunBtn = form.querySelector('button.run[type="submit"]');
+      const runActionButtons = [...form.querySelectorAll("button.run-action")];
+      const primaryRunButtons = () =>
+        [...form.querySelectorAll(".actions button.run, .actions button.run-action")];
+      const proceedWrap = card.querySelector(".proceed-after-fail");
+      const proceedBtn = proceedWrap?.querySelector("button[data-proceed-target]");
+      const dupWrap = card.querySelector(".duplicate-upload-prompt");
+      const dupYes = dupWrap?.querySelector(".dup-yes");
+      const dupNo = dupWrap?.querySelector(".dup-no");
+      const duplicatePromptCard = card.dataset.duplicatePrompt === "1";
+      const zipOwWrap = card.querySelector(".zip-overwrite-prompt");
+      const zipOwProceed = zipOwWrap?.querySelector(".zip-overwrite-proceed");
+      const zipOwCancel = zipOwWrap?.querySelector(".zip-overwrite-cancel");
+      const zipOwMsg = zipOwWrap?.querySelector(".zip-overwrite-msg");
+      const zipOverwritePromptCard = card.dataset.zipOverwritePrompt === "1";
+      const discoveryPrefill = card.dataset.discoveryPrefill === "1";
+      const prefillBtn = form.querySelector("button.discover-prefill");
+
+      function createCsvRequested(formEl) {
+        const cb = formEl.querySelector('input[name="create_csv"]');
+        return !cb || cb.checked;
+      }
+
+      function setProceedVisible(show) {
+        if (proceedWrap) proceedWrap.hidden = !show;
+      }
+
+      function setDuplicatePromptVisible(show) {
+        if (dupWrap) dupWrap.hidden = !show;
+      }
+
+      function setZipOverwritePromptVisible(show) {
+        if (zipOwWrap) zipOwWrap.hidden = !show;
+      }
+
+      // Auto-fill the "title" field from the picked file's basename, if a
+      // form has both a "file" file-input and a "title" text-input. We only
+      // overwrite when the title is empty or matches a previous filename
+      // (so we don't clobber what the user typed).
+      const fileInput = form.querySelector('input[type="file"][name="file"]');
+      const titleInput = form.querySelector('input[type="text"][name="title"]');
+      if (fileInput && titleInput) {
+        let lastAutoTitle = "";
+        fileInput.addEventListener("change", () => {
+          const f = fileInput.files && fileInput.files[0];
+          if (!f) return;
+          const base = f.name.replace(/\.[^.]+$/, "");
+          if (!titleInput.value || titleInput.value === lastAutoTitle) {
+            titleInput.value = base;
+            lastAutoTitle = base;
+          }
+        });
+      }
+
+      // Discovery: "Load files" wires up loadable_select fields.
+      if (hasDiscovery) {
+        for (const wrap of form.querySelectorAll(".loadable-select")) {
+          const name = wrap.dataset.name;
+          const meta = (wrap.dataset.meta || "").split(",").filter(Boolean);
+          const select = wrap.querySelector("select");
+          const btn = wrap.querySelector(".discover-btn");
+          btn.addEventListener("click", async () => {
+            const inputs = {};
+            for (const el of form.querySelectorAll("input, select, textarea")) {
+              if (el.type === "file") continue;
+              if (!el.name) continue;
+              inputs[el.name] = el.value;
+            }
+            btn.disabled = true;
+            const orig = btn.textContent;
+            btn.textContent = "Loading…";
+            status.textContent = "";
+            try {
+              const res = await fetch(`/api/discover/${fnId}`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
+              });
+              const data = await res.json();
+              if (!data.ok) throw new Error(data.error || "Discovery failed");
+              const payload = data.data;
+              const files = (payload && payload.files) || [];
+              select.innerHTML = "";
+              if (!files.length) {
+                const opt = document.createElement("option");
+                opt.value = "";
+                opt.textContent = "(no files on this revision)";
+                select.appendChild(opt);
+                select.disabled = true;
+              } else {
+                const placeholder = document.createElement("option");
+                placeholder.value = "";
+                placeholder.textContent = `— pick one of ${files.length} —`;
+                select.appendChild(placeholder);
+                for (const f of files) {
+                  const opt = document.createElement("option");
+                  opt.value = f.file_guid || "";
+                  const editionTxt = f.edition ? ` (ed ${f.edition})` : "";
+                  opt.textContent = `${f.number || ""}  ${f.title || ""}${editionTxt}  [${f.category_name || ""}]`;
+                  for (const m of meta) {
+                    if (f[m] != null) opt.dataset[m] = f[m];
+                  }
+                  select.appendChild(opt);
+                }
+                select.disabled = false;
+              }
+              status.textContent = `Loaded ${files.length} file(s).`;
+              status.className = "status ok";
+            } catch (e) {
+              status.textContent = `Load failed: ${e.message}`;
+              status.className = "status err";
+            } finally {
+              btn.disabled = false;
+              btn.textContent = orig;
+            }
+          });
+        }
+      }
+
+      if (hasDiscovery && discoveryPrefill && prefillBtn) {
+        prefillBtn.addEventListener("click", async () => {
+          const inputs = {};
+          for (const el of form.querySelectorAll("input, select, textarea")) {
+            if (el.type === "file") continue;
+            if (!el.name) continue;
+            inputs[el.name] = el.value;
+          }
+          prefillBtn.disabled = true;
+          const orig = prefillBtn.textContent;
+          prefillBtn.textContent = "Loading…";
+          status.textContent = "";
+          try {
+            const res = await fetch(`/api/discover/${fnId}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || "Discovery failed");
+            const payload = data.data;
+            const pf = payload && payload.prefill;
+            if (pf && typeof pf === "object") {
+              for (const [k, v] of Object.entries(pf)) {
+                const el = form.elements.namedItem(k);
+                if (el && "value" in el) el.value = v == null ? "" : String(v);
+              }
+            }
+            status.textContent = "Loaded name and description from Arena (edit if needed).";
+            status.className = "status ok";
+          } catch (e) {
+            status.textContent = `Load failed: ${e.message}`;
+            status.className = "status err";
+          } finally {
+            prefillBtn.disabled = false;
+            prefillBtn.textContent = orig;
+          }
+        });
+      }
+
+      async function executeLauncherRun(clickedBtn, runActionId) {
+        rememberAndPropagatePartNumber(form);
+
+        const runBtns = primaryRunButtons();
+        for (const b of runBtns) b.disabled = true;
+        const originalLabel = clickedBtn.textContent;
+        clickedBtn.textContent = "Running…";
+        status.textContent = "";
+        output.hidden = true;
+        setProceedVisible(false);
+        setDuplicatePromptVisible(false);
+        setZipOverwritePromptVisible(false);
+
+        let fetchInit;
+        let url;
+        if (isMultipart) {
+          const fd = new FormData();
+          for (const el of form.querySelectorAll("input, select, textarea")) {
+            if (!el.name) continue;
+            if (el.type === "file") {
+              if (el.files && el.files[0]) fd.append(el.name, el.files[0]);
+            } else if (el.type === "checkbox") {
+              fd.append(el.name, el.checked ? "1" : "0");
+            } else {
+              fd.append(el.name, el.value);
+              // For loadable_select, also surface the picked option's
+              // dataset attributes as <name>__<key> so build_command can
+              // forward e.g. existing_file__edition to the script.
+              if (el.tagName === "SELECT" && el.selectedOptions[0]) {
+                for (const [k, v] of Object.entries(el.selectedOptions[0].dataset)) {
+                  fd.append(`${el.name}__${k}`, v);
+                }
+              }
+            }
+          }
+          fd.append("__workspace", workspaceSel.value);
+          url = `/api/upload/${fnId}`;
+          fetchInit = { method: "POST", body: fd };
+        } else {
+          const inputs = readJsonInputsFromForm(form);
+          if (runActionId) inputs.__run_action = runActionId;
+          url = `/api/run/${fnId}`;
+          fetchInit = {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
+          };
+        }
+
+        try {
+          const res = await fetch(url, fetchInit);
+          const data = await res.json();
+          output.hidden = false;
+          cmdEl.textContent = data.command || "";
+          outEl.textContent = data.stdout || "";
+          errEl.textContent = data.stderr || data.error || "";
+          if (data.background) {
+            status.textContent = "Started in background.";
+            status.className = "status ok";
+          } else if (data.ok) {
+            status.textContent = `Done (exit ${data.exit_code}).`;
+            status.className = "status ok";
+            setProceedVisible(false);
+            setDuplicatePromptVisible(false);
+            setZipOverwritePromptVisible(false);
+          } else {
+            const code = data.exit_code != null ? ` (exit ${data.exit_code})` : "";
+            const dupPayload = duplicatePromptFromStdout(data.stdout);
+            const zipOwPayload = zipOverwritePromptFromStdout(data.stdout);
+            const isDupExit =
+              duplicatePromptCard &&
+              dupWrap &&
+              !data.background &&
+              data.exit_code === 10 &&
+              dupPayload;
+            const isZipOwExit =
+              zipOverwritePromptCard &&
+              zipOwWrap &&
+              !data.background &&
+              data.exit_code === 11 &&
+              zipOwPayload;
+            if (isDupExit) {
+              status.textContent = `Stopped before upload${code}.`;
+              status.className = "status err";
+              setProceedVisible(false);
+              setZipOverwritePromptVisible(false);
+              setDuplicatePromptVisible(true);
+            } else if (isZipOwExit) {
+              const detail = zipOwPayload.message || "An existing zip file will be overwritten.";
+              const extra = zipOwPayload.zipName ? ` (${zipOwPayload.zipName})` : "";
+              if (zipOwMsg) zipOwMsg.textContent = detail + extra;
+              status.textContent = `Stopped before overwriting zip${code}.`;
+              status.className = "status err";
+              setProceedVisible(false);
+              setDuplicatePromptVisible(false);
+              setZipOverwritePromptVisible(true);
+            } else {
+              status.textContent = `Failed${code}.`;
+              status.className = "status err";
+              const canProceed =
+                proceedBtn &&
+                createCsvRequested(form) &&
+                !data.background &&
+                data.exit_code != null &&
+                data.exit_code !== 0 &&
+                data.exit_code !== 11;
+              setProceedVisible(!!canProceed);
+            }
+          }
+        } catch (err) {
+          status.textContent = `Error: ${err.message}`;
+          status.className = "status err";
+        } finally {
+          for (const b of runBtns) b.disabled = false;
+          clickedBtn.textContent = originalLabel;
+        }
+      }
+
+      if (submitRunBtn) {
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          await executeLauncherRun(submitRunBtn, null);
+        });
+      }
+      for (const rb of runActionButtons) {
+        rb.addEventListener("click", async () => {
+          await executeLauncherRun(rb, rb.dataset.runAction || null);
+        });
+      }
+
+      if (dupYes && dupNo) {
+        dupNo.addEventListener("click", () => setDuplicatePromptVisible(false));
+        dupYes.addEventListener("click", async () => {
+          dupYes.disabled = true;
+          dupNo.disabled = true;
+          status.textContent = "";
+          rememberAndPropagatePartNumber(form);
+          try {
+            const inputs = readJsonInputsFromForm(form);
+            inputs.force_upload = "1";
+            const res = await fetch(`/api/run/${fnId}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
+            });
+            const data = await res.json();
+            output.hidden = false;
+            cmdEl.textContent = data.command || "";
+            outEl.textContent = data.stdout || "";
+            errEl.textContent = data.stderr || data.error || "";
+            setDuplicatePromptVisible(false);
+            if (data.background) {
+              status.textContent = "Started in background.";
+              status.className = "status ok";
+            } else if (data.ok) {
+              status.textContent = `Done (exit ${data.exit_code}).`;
+              status.className = "status ok";
+            } else {
+              const code = data.exit_code != null ? ` (exit ${data.exit_code})` : "";
+              status.textContent = `Failed${code}.`;
+              status.className = "status err";
+            }
+          } catch (err) {
+            status.textContent = `Error: ${err.message}`;
+            status.className = "status err";
+          } finally {
+            dupYes.disabled = false;
+            dupNo.disabled = false;
+          }
+        });
+      }
+
+      if (zipOwProceed && zipOwCancel) {
+        zipOwCancel.addEventListener("click", () => setZipOverwritePromptVisible(false));
+        zipOwProceed.addEventListener("click", async () => {
+          zipOwProceed.disabled = true;
+          zipOwCancel.disabled = true;
+          status.textContent = "";
+          rememberAndPropagatePartNumber(form);
+          try {
+            const inputs = readJsonInputsFromForm(form);
+            inputs.force_zip_overwrite = "1";
+            const res = await fetch(`/api/run/${fnId}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
+            });
+            const data = await res.json();
+            output.hidden = false;
+            cmdEl.textContent = data.command || "";
+            outEl.textContent = data.stdout || "";
+            errEl.textContent = data.stderr || data.error || "";
+            setZipOverwritePromptVisible(false);
+            if (data.background) {
+              status.textContent = "Started in background.";
+              status.className = "status ok";
+            } else if (data.ok) {
+              status.textContent = `Done (exit ${data.exit_code}).`;
+              status.className = "status ok";
+            } else {
+              const code = data.exit_code != null ? ` (exit ${data.exit_code})` : "";
+              const zipOwPayload = zipOverwritePromptFromStdout(data.stdout);
+              const isZipOwExit =
+                zipOverwritePromptCard &&
+                zipOwWrap &&
+                !data.background &&
+                data.exit_code === 11 &&
+                zipOwPayload;
+              if (isZipOwExit) {
+                const detail = zipOwPayload.message || "An existing zip file will be overwritten.";
+                const extra = zipOwPayload.zipName ? ` (${zipOwPayload.zipName})` : "";
+                if (zipOwMsg) zipOwMsg.textContent = detail + extra;
+                status.textContent = `Stopped before overwriting zip${code}.`;
+                setZipOverwritePromptVisible(true);
+              } else {
+                const dupPayload = duplicatePromptFromStdout(data.stdout);
+                if (
+                  duplicatePromptCard &&
+                  dupWrap &&
+                  data.exit_code === 10 &&
+                  dupPayload
+                ) {
+                  status.textContent = `Stopped before upload${code}.`;
+                  setDuplicatePromptVisible(true);
+                } else {
+                  status.textContent = `Failed${code}.`;
+                }
+              }
+              status.className = "status err";
+            }
+          } catch (err) {
+            status.textContent = `Error: ${err.message}`;
+            status.className = "status err";
+          } finally {
+            zipOwProceed.disabled = false;
+            zipOwCancel.disabled = false;
+          }
+        });
+      }
+
+      if (proceedBtn) {
+        proceedBtn.addEventListener("click", async () => {
+          const targetId = proceedBtn.dataset.proceedTarget;
+          if (!targetId) return;
+          proceedBtn.disabled = true;
+          const prev = proceedBtn.textContent;
+          proceedBtn.textContent = "Running…";
+          status.textContent = "";
+          rememberAndPropagatePartNumber(form);
+          try {
+            const inputs = readJsonInputsFromForm(form);
+            const res = await fetch(`/api/run/${targetId}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
+            });
+            const data = await res.json();
+            output.hidden = false;
+            cmdEl.textContent = data.command || "";
+            outEl.textContent = data.stdout || "";
+            errEl.textContent = data.stderr || data.error || "";
+            setProceedVisible(false);
+            if (data.background) {
+              status.textContent = "Convert started in background.";
+              status.className = "status ok";
+            } else if (data.ok) {
+              status.textContent = `Convert done (exit ${data.exit_code}).`;
+              status.className = "status ok";
+            } else {
+              const code = data.exit_code != null ? ` (exit ${data.exit_code})` : "";
+              status.textContent = `Convert failed${code}.`;
+              status.className = "status err";
+            }
+          } catch (err) {
+            status.textContent = `Error: ${err.message}`;
+            status.className = "status err";
+          } finally {
+            proceedBtn.disabled = false;
+            proceedBtn.textContent = prev;
+          }
+        });
+      }
+    }
+  </script>
+</body>
+</html>

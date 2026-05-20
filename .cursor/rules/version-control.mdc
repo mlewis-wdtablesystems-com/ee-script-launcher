@@ -1,0 +1,39 @@
+---
+description: Use git for all project changes; commit after each completed task with clear messages.
+alwaysApply: true
+---
+
+# Version control
+
+This workspace is a **git repository**. Treat version control as part of every implementation task.
+
+## When to commit
+
+- After completing a discrete, working change (feature, fix, or refactor), create a **commit** unless the user says not to.
+- Prefer **small, focused commits** over one large dump at the end of a long session.
+- Do **not** commit secrets (`.env`, passwords, API keys), `scripts/launcher/.venv/`, logs, `agent-transcripts/`, `terminals/`, or generated `scripts/*.csv` / `scripts/*.xlsx` sample exports.
+
+## Commit messages
+
+Use imperative, present-tense summaries (50–72 characters for the subject), then optional body:
+
+```
+Add Export Supplier BOM launcher card and script
+
+Resolve Arena BOM export via SUPPLIER format; cap recent part numbers at 15.
+```
+
+## Before committing
+
+1. `git status` and `git diff` to verify only intended files are included.
+2. Stage specific paths; avoid `git add -A` if unrelated untracked files are present.
+3. Run `git status` after commit to confirm success.
+
+## Branches
+
+- Use a feature branch for large or risky work when it helps review (`git checkout -b feature/short-name`).
+- Do not force-push to `main`/`master` unless the user explicitly requests it.
+
+## Nested repo
+
+`wdts-altium-mcp/` has its own git history and is **ignored** in this repo. Commit Altium MCP changes inside that directory separately.

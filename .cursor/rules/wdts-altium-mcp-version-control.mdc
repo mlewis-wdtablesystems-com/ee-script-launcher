@@ -1,0 +1,39 @@
+---
+description: Use git for WDTS-Altium-MCP and related MCP/config changes
+globs: wdts-altium-mcp/**/*
+alwaysApply: false
+---
+
+# WDTS-Altium-MCP version control
+
+The MCP server lives in `wdts-altium-mcp/` and is a **git repository**. Use version control for every change to it or closely associated files.
+
+## Repository
+
+- Root: `wdts-altium-mcp/`
+- Remote: add when the user provides one; do not force-push `main`/`master`.
+
+## What to commit
+
+- Python package under `wdts-altium-mcp/src/`
+- `pyproject.toml`, `README.md`, `config/cursor-mcp.example.json`
+- `.gitignore` and project rules that affect the MCP server
+
+## What not to commit
+
+- `.venv/` or other virtualenv directories
+- Secrets: Arena passwords, API keys, or live `~/.cursor/mcp.json` credentials
+- User-specific paths unless updating the **example** config in `config/cursor-mcp.example.json`
+
+## Workflow (required after MCP changes)
+
+1. `git -C wdts-altium-mcp status` and review the diff.
+2. Stage only intentional files (`git add` specific paths).
+3. Commit with a clear message focused on **why** (feature, fix, config).
+4. Do not amend or force-push unless the user explicitly asks.
+
+## Associated files outside this repo
+
+PowerShell scripts in `../scripts/` are consumed by the MCP server but are not in this repo yet. If you change scripts **only** for MCP behavior, mention that in the commit message and tell the user if those script changes also need tracking elsewhere.
+
+When editing `~/.cursor/mcp.json`, update `config/cursor-mcp.example.json` if the structure changes (never copy real secrets into git).

@@ -1,0 +1,132 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Open Altium part folder (Explorer)",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-NoExit",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\Open-AltiumPartFolder.ps1",
+        "-PartNumber",
+        "${input:altiumPartNumber}"
+      ],
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Open Altium PCB project (.PrjPcb)",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-NoExit",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\Open-AltiumPartFolder.ps1",
+        "-PartNumber",
+        "${input:altiumPartNumber}",
+        "-Open",
+        "PrjPcb"
+      ],
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Altium fabrication zip",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-NoExit",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\Open-AltiumPartFolder.ps1",
+        "-PartNumber",
+        "${input:altiumPartNumber}",
+        "-Open",
+        "FabricationZip"
+      ],
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Altium pick & place zip",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-NoExit",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\Open-AltiumPartFolder.ps1",
+        "-PartNumber",
+        "${input:altiumPartNumber}",
+        "-Open",
+        "PickPlaceZip"
+      ],
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Convert BOM Excel to CSV",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-NoExit",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "C:\\Users\\mlewis\\OneDrive - Walker Digital\\Documents\\Convert_BOM_to_CSV.ps1"
+      ],
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "altiumPartNumber",
+      "type": "promptString",
+      "description": "PPP-XX-XXX, optional space + folder suffix (e.g. 296-10-001 or 296-10-001 BJ 5P)",
+      "default": ""
+    }
+  ]
+}

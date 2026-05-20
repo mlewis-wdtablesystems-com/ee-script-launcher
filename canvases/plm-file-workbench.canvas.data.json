@@ -1,0 +1,16 @@
+{
+  "activePane": "altium",
+  "chkArenaExport": false,
+  "noteArenaBomPath": "\"C:\\Users\\mlewis\\Downloads\\199-10-001.csv\"",
+  "altiumExplorerLastNote": "Copied the PowerShell command. Paste into Cursor's terminal (or Win+R Run) and press Enter — the newest .PrjPcb under that folder (recursive, after latest Rev / Ver when present) opens in Altium.",
+  "altiumPartNumberEntry": "294-10-001",
+  "altiumRecentPartNumbers": [
+    "294-10-001",
+    "272-10-001",
+    "213-15-007"
+  ],
+  "bomCsvConversionLastNote": "Copied. Paste into a terminal and press Enter — choose the Altium BOM .xlsx; CSV is saved beside it after cleanup. Blank cells in column C on sheet 1 abort with an error.",
+  "noteAltiumBomPath": "\"C:\\Users\\mlewis\\Walker Digital\\Technology - Released Production BOMs\\199 - Newport World Resort BACC 6P\\199-10 Electronics\\BOM\\BOM of 199-10-001-ASY Ver D3.xlsx\"",
+  "bomCompareLastNote": "Copied. Paste into a terminal and press Enter — the script reads the named/indexed Altium sheet (default 2) and prints only-in-Arena, only-in-Altium, qty / designator diffs on common parts, plus voltage-rating mismatches in descriptions.",
+  "scriptCopyLastNote": "Show-ArenaPlmDashboard.ps1 copied — paste into Cursor (Ctrl+P), File Explorer, or Win+R."
+}

@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.installed
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+
+# Cursor / IDE session noise (not product source)
+agent-transcripts/
+agent-tools/
+terminals/
+mcps/
+
+# Logs and debug artifacts
+*.log
+scripts/_*.json
+scripts/*.csv
+scripts/*.xlsx
+
+# Launcher runtime
+scripts/launcher/.venv/
+scripts/launcher/.installed
+
+# Altium MCP (separate git repo under wdts-altium-mcp/)
+wdts-altium-mcp/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
