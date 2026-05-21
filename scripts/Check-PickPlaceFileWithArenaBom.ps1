@@ -278,12 +278,12 @@ Write-Host ("  BOM lines: {0}  fitted designators: {1}  NF/DNF designators: {2}"
 Write-Host ''
 Write-Host '=== Pick & Place vs Arena BOM (description check) ==='
 
-$ok = New-Object System.Collections.Generic.List[object]
-$mismatch = New-Object System.Collections.Generic.List[object]
-$noArena = New-Object System.Collections.Generic.List[object]
-$emptyPp = New-Object System.Collections.Generic.List[object]
+$ok = @()
+$mismatch = @()
+$noArena = @()
+$emptyPp = @()
 $fiducial = 0
-$nfInPp = New-Object System.Collections.Generic.List[object]
+$nfInPp = @()
 $ppDesignatorsSeen = @{}
 
 foreach ($row in $ppRows) {
@@ -299,21 +299,21 @@ foreach ($row in $ppRows) {
   }
 
   if ($nfDesignators.ContainsKey($des)) {
-    $nfInPp.Add([pscustomobject]@{ Designator = $des })
+    $nfInPp += [pscustomobject]@{ Designator = $des }
     continue
   }
 
   $ppText = Get-PickPlaceDescriptionText -Row $row
   if (-not $ppText) {
-    $emptyPp.Add([pscustomobject]@{ Designator = $des })
+    $emptyPp += [pscustomobject]@{ Designator = $des }
     continue
   }
 
   if (-not $designatorMap.ContainsKey($des)) {
-    $noArena.Add([pscustomobject]@{
+    $noArena += [pscustomobject]@{
         Designator = $des
         PickPlace  = $ppText
-      })
+      }
     continue
   }
 
@@ -324,19 +324,19 @@ foreach ($row in $ppRows) {
     -PartNumber $arena.PartNumber
 
   if ($chk.Ok) {
-    $ok.Add([pscustomobject]@{
+    $ok += [pscustomobject]@{
         Designator = $des
         PartNumber = $arena.PartNumber
-      })
+      }
   }
   else {
-    $mismatch.Add([pscustomobject]@{
+    $mismatch += [pscustomobject]@{
         Designator = $des
         PartNumber = $arena.PartNumber
         Arena      = $arena.Description
         PickPlace  = $ppText
         Detail     = $chk.Message
-      })
+      }
   }
 }
 
@@ -360,12 +360,12 @@ function Write-ListSection {
   }
 }
 
-Write-ListSection -Title "Matched ($($ok.Count))" -Color Green -Items @($ok) -Formatter {
+Write-ListSection -Title "Matched ($($ok.Count))" -Color Green -Items $ok -Formatter {
   param($x)
   Write-Host ("  {0}  {1}" -f $x.Designator, $x.PartNumber) -ForegroundColor DarkGreen
 }
 
-Write-ListSection -Title "Description mismatches ($($mismatch.Count))" -Color Red -Items @($mismatch) -Formatter {
+Write-ListSection -Title "Description mismatches ($($mismatch.Count))" -Color Red -Items $mismatch -Formatter {
   param($x)
   Write-Host ("  {0}  {1}" -f $x.Designator, $x.PartNumber) -ForegroundColor Red
   Write-Host ("    Pick & Place: {0}" -f $x.PickPlace)
@@ -373,7 +373,7 @@ Write-ListSection -Title "Description mismatches ($($mismatch.Count))" -Color Re
   if ($x.Detail) { Write-Host ("    Detail    : {0}" -f $x.Detail) -ForegroundColor Yellow }
 }
 
-Write-ListSection -Title "P&P designators not on Arena BOM ($($noArena.Count))" -Color Yellow -Items @($noArena) -Formatter {
+Write-ListSection -Title "P&P designators not on Arena BOM ($($noArena.Count))" -Color Yellow -Items $noArena -Formatter {
   param($x)
   Write-Host ("  {0}  P&P text: {1}" -f $x.Designator, $x.PickPlace) -ForegroundColor Yellow
 }
@@ -384,12 +384,12 @@ Write-ListSection -Title "Arena BOM designators missing from P&P ($($arenaOnly.C
   Write-Host ("  {0}  {1}  Arena: {2}" -f $des, $a.PartNumber, $a.Description) -ForegroundColor Yellow
 }
 
-Write-ListSection -Title "P&P rows with empty Description/Comment ($($emptyPp.Count))" -Color DarkYellow -Items @($emptyPp) -Formatter {
+Write-ListSection -Title "P&P rows with empty Description/Comment ($($emptyPp.Count))" -Color DarkYellow -Items $emptyPp -Formatter {
   param($x)
   Write-Host ("  {0}" -f $x.Designator) -ForegroundColor DarkYellow
 }
 
-Write-ListSection -Title "P&P rows for Arena NF/DNF lines ($($nfInPp.Count))" -Color DarkGray -Items @($nfInPp) -Formatter {
+Write-ListSection -Title "P&P rows for Arena NF/DNF lines ($($nfInPp.Count))" -Color DarkGray -Items $nfInPp -Formatter {
   param($x)
   Write-Host ("  {0}  (still present in P&P; Arena marks Not Fitted)" -f $x.Designator) -ForegroundColor DarkGray
 }
