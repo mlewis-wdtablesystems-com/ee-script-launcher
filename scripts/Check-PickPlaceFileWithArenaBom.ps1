@@ -101,12 +101,24 @@ function Test-ArenaBomLineIsNotFitted {
   return [bool]($blob -match '(?i)\b(not\s*fitted|n\s*/\s*f|dnf|do\s+not\s+fit|not\s+installed)\b')
 }
 
-function Test-PickPlaceRowIsFiducial {
+function Test-PickPlaceRowIsNotFitted {
+  param([hashtable]$Row)
+  $blob = ''
+  foreach ($k in @('Comment', 'Description', 'Designator', 'Footprint')) {
+    if ($Row.ContainsKey($k) -and $null -ne $Row[$k]) { $blob += " $($Row[$k])" }
+  }
+  return Test-ArenaBomLineIsNotFitted -PartNumber '' -Name $blob.Trim() -Notes ''
+}
+
+function Test-PickPlaceRowIsSkippableNonComponent {
   param([hashtable]$Row)
   foreach ($k in @('Designator', 'Comment', 'Description', 'Footprint')) {
     $v = $Row[$k]
     if ($v -and ("$v" -match '(?i)fiducial')) { return $true }
+    if ($v -and ("$v" -match '(?i)mounting\s*hole|mount\s*hole')) { return $true }
   }
+  $des = if ($Row.ContainsKey('Designator')) { ("$($Row['Designator'])").Trim() } else { '' }
+  if ($des -match '(?i)^MH\d+$') { return $true }
   return $false
 }
 
@@ -160,7 +172,18 @@ $jm = $rxJson.Match($joined)
 if (-not $jm.Success) { throw "Could not find resolve JSON markers.`n$joined" }
 $resolved = $jm.Groups['j'].Value | ConvertFrom-Json
 $prodDoc = $resolved.prodDocDir
+$pcbPartNumbersAllowMissingFromPp = [System.Collections.Generic.HashSet[string]]::new(
+  [System.StringComparer]::OrdinalIgnoreCase
+)
+[void]$pcbPartNumbersAllowMissingFromPp.Add($PartNumber.Trim())
+if ($resolved.PSObject.Properties.Name -contains 'pcbPartNumber') {
+  $pcbPn = ("$($resolved.pcbPartNumber)").Trim()
+  if ($pcbPn) { [void]$pcbPartNumbersAllowMissingFromPp.Add($pcbPn) }
+}
 Write-Host ("  Production folder : {0}" -f $prodDoc)
+if ($pcbPartNumbersAllowMissingFromPp.Count -gt 0) {
+  Write-Host ("  PCB part(s) OK if absent from P&P: {0}" -f (@($pcbPartNumbersAllowMissingFromPp | Sort-Object) -join ', '))
+}
 
 $pickPlaceDir = Join-Path $prodDoc 'Pick Place'
 if (-not (Test-Path -LiteralPath $pickPlaceDir -PathType Container)) {
@@ -282,7 +305,8 @@ $ok = @()
 $mismatch = @()
 $noArena = @()
 $emptyPp = @()
-$fiducial = 0
+$skippedNonComponent = 0
+$acceptedNf = @()
 $nfInPp = @()
 $ppDesignatorsSeen = @{}
 
@@ -293,27 +317,46 @@ foreach ($row in $ppRows) {
 
   $ht = @{}
   foreach ($p in $row.PSObject.Properties) { $ht[$p.Name] = $p.Value }
-  if (Test-PickPlaceRowIsFiducial -Row $ht) {
-    $fiducial++
+  if (Test-PickPlaceRowIsSkippableNonComponent -Row $ht) {
+    $skippedNonComponent++
     continue
   }
 
-  if ($nfDesignators.ContainsKey($des)) {
+  $ppMarksNf = Test-PickPlaceRowIsNotFitted -Row $ht
+  $arenaMarksNf = $nfDesignators.ContainsKey($des)
+  $arenaHasFittedLine = $designatorMap.ContainsKey($des)
+
+  if ($ppMarksNf -and (-not $arenaHasFittedLine -or $arenaMarksNf)) {
+    $acceptedNf += [pscustomobject]@{ Designator = $des; Note = 'P&P N/F/DNF; Arena N/F or not on fitted BOM' }
+    continue
+  }
+
+  if ($arenaMarksNf) {
     $nfInPp += [pscustomobject]@{ Designator = $des }
     continue
   }
 
   $ppText = Get-PickPlaceDescriptionText -Row $row
   if (-not $ppText) {
-    $emptyPp += [pscustomobject]@{ Designator = $des }
+    if (-not $arenaHasFittedLine -or $arenaMarksNf) {
+      $acceptedNf += [pscustomobject]@{ Designator = $des; Note = 'Empty P&P text; Arena N/F or not on fitted BOM' }
+    }
+    else {
+      $emptyPp += [pscustomobject]@{ Designator = $des }
+    }
     continue
   }
 
-  if (-not $designatorMap.ContainsKey($des)) {
-    $noArena += [pscustomobject]@{
-        Designator = $des
-        PickPlace  = $ppText
-      }
+  if (-not $arenaHasFittedLine) {
+    if ($ppMarksNf) {
+      $acceptedNf += [pscustomobject]@{ Designator = $des; Note = 'P&P N/F/DNF; not on Arena fitted BOM' }
+    }
+    else {
+      $noArena += [pscustomobject]@{
+          Designator = $des
+          PickPlace  = $ppText
+        }
+    }
     continue
   }
 
@@ -340,7 +383,18 @@ foreach ($row in $ppRows) {
   }
 }
 
-$arenaOnly = @($designatorMap.Keys | Where-Object { -not $ppDesignatorsSeen.ContainsKey($_) } | Sort-Object)
+$arenaOnly = @(
+  $designatorMap.Keys | Where-Object {
+    -not $ppDesignatorsSeen.ContainsKey($_) -and
+    -not $pcbPartNumbersAllowMissingFromPp.Contains($designatorMap[$_].PartNumber)
+  } | Sort-Object
+)
+$pcbMissingOk = @(
+  $designatorMap.Keys | Where-Object {
+    -not $ppDesignatorsSeen.ContainsKey($_) -and
+    $pcbPartNumbersAllowMissingFromPp.Contains($designatorMap[$_].PartNumber)
+  } | Sort-Object
+)
 
 function Write-ListSection {
   param(
@@ -389,14 +443,25 @@ Write-ListSection -Title "P&P rows with empty Description/Comment ($($emptyPp.Co
   Write-Host ("  {0}" -f $x.Designator) -ForegroundColor DarkYellow
 }
 
+Write-ListSection -Title "Accepted N/F or DNF (P&P vs Arena) ($($acceptedNf.Count))" -Color DarkGreen -Items $acceptedNf -Formatter {
+  param($x)
+  Write-Host ("  {0}  ({1})" -f $x.Designator, $x.Note) -ForegroundColor DarkGreen
+}
+
 Write-ListSection -Title "P&P rows for Arena NF/DNF lines ($($nfInPp.Count))" -Color DarkGray -Items $nfInPp -Formatter {
   param($x)
   Write-Host ("  {0}  (still present in P&P; Arena marks Not Fitted)" -f $x.Designator) -ForegroundColor DarkGray
 }
 
-if ($fiducial -gt 0) {
+Write-ListSection -Title "PCB part(s) OK missing from P&P ($($pcbMissingOk.Count))" -Color DarkGreen -Items $pcbMissingOk -Formatter {
+  param($des)
+  $a = $designatorMap[$des]
+  Write-Host ("  {0}  {1}  (board item — not required in Pick & Place)" -f $des, $a.PartNumber) -ForegroundColor DarkGreen
+}
+
+if ($skippedNonComponent -gt 0) {
   Write-Host ''
-  Write-Host ("Fiducial rows skipped: {0}" -f $fiducial) -ForegroundColor DarkGray
+  Write-Host ("Fiducial / mounting-hole rows skipped: {0}" -f $skippedNonComponent) -ForegroundColor DarkGray
 }
 
 Write-Host ''

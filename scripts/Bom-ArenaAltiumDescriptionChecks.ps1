@@ -17,6 +17,8 @@ foreach ($x in @(
     '098-13-167'
     # FPC connector: Arena "1.00mm" vs Altium "1mm" pitch wording
     '098-10-516'
+    # Toroid Transformer (P&P) vs COMMOM MODE CHOKE vertical (Arena) — e.g. 266-10-008 T1
+    '031-10-060'
   )) {
   [void]$script:BomArenaAltiumDescriptionBypassPartNumbers.Add($x)
 }

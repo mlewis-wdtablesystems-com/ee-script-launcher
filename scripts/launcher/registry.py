@@ -522,6 +522,8 @@ FUNCTIONS: list[FunctionSpec] = [
             "and compares each designator's Description (or Comment if Description is empty) "
             "to the Arena assembly BOM on the working or most recent released revision. "
             "Uses the same spec-aware regex checks as BOM export / Arena–Altium compare. "
+            "N/F or DNF in P&P is OK when Arena also marks N/F or the line is absent; "
+            "the PCB board item may be missing from P&P; fiducials and mounting holes are skipped. "
             "Read-only; does not modify files."
         ),
         fields=[
