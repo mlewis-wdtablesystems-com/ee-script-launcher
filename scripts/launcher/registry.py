@@ -513,6 +513,49 @@ FUNCTIONS: list[FunctionSpec] = [
         ),
     ),
     FunctionSpec(
+        id="arena_check_pick_place_with_bom",
+        group="Arena PLM",
+        icon="🔍",
+        title="Check Pick and Place File with Arena BOM",
+        description=(
+            "For a part number, reads the single .csv in the production Pick Place folder "
+            "and compares each designator's Description (or Comment if Description is empty) "
+            "to the Arena assembly BOM on the working or most recent released revision. "
+            "Uses the same spec-aware regex checks as BOM export / Arena–Altium compare. "
+            "Read-only; does not modify files."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="Part number (Altium lookup)",
+                placeholder="272-15-001",
+                required=True,
+            ),
+            FieldSpec(
+                name="revision_mode",
+                label="Arena BOM revision",
+                kind="select",
+                options=[
+                    "Working revision",
+                    "Most recent released revision",
+                ],
+                default="Working revision",
+            ),
+        ],
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Check-PickPlaceFileWithArenaBom.ps1",
+            "-PartNumber",
+            v["part_number"],
+            "-RevisionMode",
+            (
+                "effective_latest"
+                if (v.get("revision_mode") or "").strip()
+                == "Most recent released revision"
+                else "working"
+            ),
+        ),
+    ),
+    FunctionSpec(
         id="arena_correct_pick_place_from_bom",
         group="Arena PLM",
         icon="📍",
