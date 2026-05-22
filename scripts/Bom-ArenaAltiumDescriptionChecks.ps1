@@ -15,6 +15,10 @@ foreach ($x in @(
     '098-10-551'
     # 8.2 nF cap: Name "8.2nF,25V" vs description "8200 pF" (same value, different tokenization)
     '098-13-167'
+    # 10 nF cap: Name "10nF" vs description "10000PF" (10nf vs 10000pf tokens)
+    '098-13-038'
+    # 3.9 ohm: Name "3R9" vs description "3.9 OHM" (3r9 vs 3.9ohm tokens)
+    '098-12-006'
     # FPC connector: Arena "1.00mm" vs Altium "1mm" pitch wording
     '098-10-516'
     # Toroid Transformer (P&P) vs COMMOM MODE CHOKE vertical (Arena) — e.g. 266-10-008 T1
