@@ -32,6 +32,7 @@ from typing import Callable, Literal
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+WDTS_MCP_DIR = SCRIPTS_DIR.parent / "wdts-altium-mcp"
 ALTIUM_BOM_TO_CSV = Path(
     r"C:\Users\mlewis\OneDrive - Walker Digital\Documents\Convert_BOM_to_CSV.ps1"
 )
@@ -134,6 +135,12 @@ class FunctionSpec:
     @property
     def has_loadable_select(self) -> bool:
         return any(f.kind == "loadable_select" for f in self.fields)
+
+
+def _wdts_python(script: str, *args: str) -> list[str]:
+    """Run a script under wdts-altium-mcp with that repo's .venv Python."""
+    python = WDTS_MCP_DIR / ".venv" / "Scripts" / "python.exe"
+    return [str(python), str(WDTS_MCP_DIR / script), *args]
 
 
 def _ps(script: Path, *args: str) -> list[str]:
@@ -893,6 +900,62 @@ FUNCTIONS: list[FunctionSpec] = [
         ),
     ),
     FunctionSpec(
+        id="altium_gerber_zip",
+        group="Altium",
+        icon="📦",
+        hidden=True,
+        title="Check and Build Gerber Zip",
+        description="(Superseded by combined Gerber zip card.)",
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="Part number",
+                placeholder="272-10-001",
+                required=True,
+            ),
+        ],
+        background=False,
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Open-AltiumPartFolder.ps1",
+            "-PartNumber", v["part_number"],
+            "-Open", "GerberZip",
+        ),
+    ),
+    FunctionSpec(
+        id="altium_gerber_zip_workflow",
+        group="Altium",
+        icon="📦",
+        zip_overwrite_prompt=True,
+        title="Gerber zip",
+        description=(
+            "Check Gerber and NC Drill outputs and optionally create "
+            "'Gerbers PPP-20/25-YYY Rev <letter>.zip' (no PFS folder). "
+            "Same checks as fabrication zip except PFS is not required or included."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="Part number",
+                placeholder="294-10-022 or 294-20-022",
+                required=True,
+            ),
+            FieldSpec(
+                name="create_zip",
+                label="Create Zip",
+                kind="checkbox",
+                default="1",
+            ),
+        ],
+        background=False,
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Invoke-AltiumGerberZipWorkflow.ps1",
+            "-PartNumber",
+            v["part_number"],
+            *_optional_switch(v, "create_zip", "-CreateZip", default=True),
+            *_force_zip_overwrite_args(v),
+        ),
+    ),
+    FunctionSpec(
         id="altium_bom_export_workflow",
         group="Altium",
         icon="✅",
@@ -1000,6 +1063,129 @@ FUNCTIONS: list[FunctionSpec] = [
             *_optional_switch(v, "use_existing_file", "-UseExistingFile"),
             *_force_upload_args(v),
             *_force_zip_overwrite_args(v),
+        ),
+    ),
+    # ----- Altium MCP (live bridge) -----
+    FunctionSpec(
+        id="altium_mcp_get_designators",
+        group="Altium MCP",
+        icon="🏷️",
+        title="Get Designators",
+        description=(
+            "Resolve the part number to the Altium PCB/project, query live component "
+            "designators via the WDTS bridge, and print a sorted list. If the bridge "
+            "times out, falls back to the newest Pick & Place CSV under the part folder."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="Part number",
+                placeholder="213-15-007 or 213-25-007",
+                required=True,
+            ),
+        ],
+        background=False,
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Get-AltiumDesignators.ps1",
+            "-PartNumber", v["part_number"],
+        ),
+    ),
+    FunctionSpec(
+        id="altium_mcp_check_silkscreen_text",
+        group="Altium MCP",
+        icon="🔍",
+        title="Check Silkscreen Text",
+        description=(
+            "Checks Top and Bottom Overlay silkscreen via the live Altium bridge: "
+            "bare PCB and assembly part numbers with Rev/Ver, copyright text (or ©), "
+            "and a 25 mm x 10 mm serial number box. Requires compiled Altium_API.PrjScr "
+            "(or other_utils » MCP_ProcessRequest if Altium is already open)."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="Part number",
+                placeholder="213-15-007 or 213-25-007",
+                required=True,
+            ),
+        ],
+        background=False,
+        cwd=WDTS_MCP_DIR,
+        build_command=lambda v: _wdts_python(
+            "scripts/check_silkscreen_text.py",
+            "--part", v["part_number"],
+        ),
+    ),
+    FunctionSpec(
+        id="altium_mcp_check_silkscreen_part_number",
+        group="Altium MCP",
+        icon="🔍",
+        hidden=True,
+        title="Check Top Silkscreen Part Number",
+        description="(Renamed to Check Silkscreen Text.)",
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="Part number",
+                placeholder="213-15-007 or 213-25-007",
+                required=True,
+            ),
+        ],
+        background=False,
+        cwd=WDTS_MCP_DIR,
+        build_command=lambda v: _wdts_python(
+            "scripts/check_silkscreen_text.py",
+            "--part", v["part_number"],
+        ),
+    ),
+    FunctionSpec(
+        id="altium_mcp_find_untented_vias",
+        group="Altium MCP",
+        icon="◎",
+        title="Find Untented Vias",
+        description=(
+            "Opens the part PCB, finds vias not tented on Top or Bottom solder mask, "
+            "deselects everything else, selects those vias, and zooms. Altium shows "
+            "\"No untented vias\" if none match. Uses WDTS Altium MCP bridge "
+            "(compile Altium_API.PrjScr or run other_utils » MCP_ProcessRequest)."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="Part number",
+                placeholder="213-15-007 or 213-25-007",
+                required=True,
+            ),
+        ],
+        background=False,
+        cwd=WDTS_MCP_DIR,
+        build_command=lambda v: _wdts_python(
+            "scripts/show_untented_vias.py",
+            "--part", v["part_number"],
+        ),
+    ),
+    FunctionSpec(
+        id="show_untented_vias",
+        group="Altium",
+        icon="◎",
+        hidden=True,
+        title="Show untented vias",
+        description="(Moved to Altium MCP tab.)",
+        fields=[],
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Show-UntentedVias.ps1",
+        ),
+    ),
+    FunctionSpec(
+        id="check_part_number_silkscreen",
+        group="Altium",
+        icon="🔍",
+        hidden=True,
+        title="Check part number on silkscreen",
+        description="(Moved to Altium MCP tab.)",
+        fields=[],
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Check-PartNumberSilkscreen.ps1",
         ),
     ),
     FunctionSpec(

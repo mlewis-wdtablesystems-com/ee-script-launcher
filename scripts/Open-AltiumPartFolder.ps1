@@ -48,6 +48,9 @@
   subfolder), inspect the Gerber folder for files sharing an extension (orange warning if any),
   then zip "Gerber", "NC Drill", and "PFS" into "Fabrication PPP-YY-XXX Rev ?.zip" inside that
   production document folder.
+  GerberZip — same production-document resolution and folder checks as FabricationZip (Gerber and
+  NC Drill only; PFS is not required or included), then zip "Gerber" and "NC Drill" into
+  "Gerbers PPP-YY-XXX Rev ?.zip" inside that production document folder.
   PickPlaceZip — same production-document resolution, then zip the "Pick Place" folder into
   "Pick Place PPP-TT-XXX Rev ?.zip" inside the production document folder. Errors if the folder
   contains more than one *.csv or more than one *.txt file (top-level).
@@ -63,7 +66,7 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$PartNumber,
   [Parameter(Mandatory = $false)]
-  [ValidateSet('Explorer', 'ProductionExplorer', 'PrjPcb', 'PcbDoc', 'FabricationZip', 'PickPlaceZip', 'CheckFabrication', 'ResolveJson')]
+  [ValidateSet('Explorer', 'ProductionExplorer', 'PrjPcb', 'PcbDoc', 'FabricationZip', 'GerberZip', 'PickPlaceZip', 'CheckFabrication', 'ResolveJson')]
   [string]$Open = 'Explorer',
   [Parameter(Mandatory = $false)]
   [int]$TimestampSpreadMinutes = 2,
@@ -308,20 +311,27 @@ function Invoke-FabricationFolderChecks {
   #   @{ Errors = [string[]]; Warnings = [string[]] }
   param(
     [string]$ProdDocDir,
-    [int]$TimestampSpreadMinutes = 2
+    [int]$TimestampSpreadMinutes = 2,
+    [switch]$IncludePfsChecks
   )
+  if (-not $PSBoundParameters.ContainsKey('IncludePfsChecks')) {
+    $IncludePfsChecks = $true
+  }
   $errors   = New-Object System.Collections.Generic.List[string]
   $warnings = New-Object System.Collections.Generic.List[string]
 
-  # 1. PFS must contain exactly one .pdf
   $pfsDir = Join-Path $ProdDocDir 'PFS'
-  $pfsPdfs = @()
-  if (Test-Path -LiteralPath $pfsDir -PathType Container) {
-    $pfsPdfs = @(Get-ChildItem -LiteralPath $pfsDir -File -Filter '*.pdf' -ErrorAction SilentlyContinue)
-  }
-  if ($pfsPdfs.Count -ne 1) {
-    $listed = if ($pfsPdfs.Count -eq 0) { '(none)' } else { ($pfsPdfs | Sort-Object Name | ForEach-Object { $_.Name }) -join ', ' }
-    $null = $errors.Add("ERROR: PFS folder must contain exactly one .pdf file (found $($pfsPdfs.Count): $listed).")
+
+  # 1. PFS must contain exactly one .pdf (Fabrication zip only)
+  if ($IncludePfsChecks) {
+    $pfsPdfs = @()
+    if (Test-Path -LiteralPath $pfsDir -PathType Container) {
+      $pfsPdfs = @(Get-ChildItem -LiteralPath $pfsDir -File -Filter '*.pdf' -ErrorAction SilentlyContinue)
+    }
+    if ($pfsPdfs.Count -ne 1) {
+      $listed = if ($pfsPdfs.Count -eq 0) { '(none)' } else { ($pfsPdfs | Sort-Object Name | ForEach-Object { $_.Name }) -join ', ' }
+      $null = $errors.Add("ERROR: PFS folder must contain exactly one .pdf file (found $($pfsPdfs.Count): $listed).")
+    }
   }
 
   # 2. Gerber must contain at least 8 files
@@ -348,11 +358,14 @@ function Invoke-FabricationFolderChecks {
   foreach ($w in Test-GerberFolderForDuplicateExtensions $gerberDir) { $null = $warnings.Add($w) }
 
   # 5. Per-folder timestamp consistency warnings
-  foreach ($pair in @(
-      @{ Path = $gerberDir;  Label = 'Gerber'   }
-      @{ Path = $ncDrillDir; Label = 'NC Drill' }
-      @{ Path = $pfsDir;     Label = 'PFS'      }
-    )) {
+  $timestampFolders = @(
+    @{ Path = $gerberDir;  Label = 'Gerber'   }
+    @{ Path = $ncDrillDir; Label = 'NC Drill' }
+  )
+  if ($IncludePfsChecks) {
+    $timestampFolders += @{ Path = $pfsDir; Label = 'PFS' }
+  }
+  foreach ($pair in $timestampFolders) {
     $w = Test-FolderTimestampSpread -Folder $pair.Path -Label $pair.Label -MaxSpreadMinutes $TimestampSpreadMinutes
     if ($w) { $null = $warnings.Add($w) }
   }
@@ -366,12 +379,13 @@ function Show-FabricationFolderCheckReport {
     [string]$ProdDocDir,
     [string]$RevLetter,
     [int]$TimestampSpreadMinutes,
-    [hashtable]$CheckResult
+    [hashtable]$CheckResult,
+    [string]$ReportTitle = 'Fabrication folder check'
   )
   $errs = @($CheckResult.Errors)
   $warns = @($CheckResult.Warnings)
   Write-Host ''
-  Write-Host '--- Fabrication folder check ---'
+  Write-Host "--- $ReportTitle ---"
   Write-Host "Production document folder: $ProdDocDir"
   Write-Host "Revision: $RevLetter"
   Write-Host "Timestamp spread limit: $TimestampSpreadMinutes minute(s)"
@@ -718,7 +732,7 @@ if ($Open -eq 'ResolveJson') {
 # Fabrication / pick-place / check need outputs under a production folder; use
 # the newest rev that has one (not necessarily the same as Explorer's $targetDir).
 $prodWorkDir = $targetDir
-if ($Open -in @('FabricationZip', 'PickPlaceZip', 'CheckFabrication')) {
+if ($Open -in @('FabricationZip', 'GerberZip', 'PickPlaceZip', 'CheckFabrication')) {
   $prodWorkDir = Select-RevFolderWithProductionDoc -PartFolder $partDir -RevRecords $revRecords
   if ($prodWorkDir -ne $targetDir) {
     Write-Host "Production outputs taken from: $prodWorkDir"
@@ -778,7 +792,58 @@ if ($Open -eq 'CheckFabrication') {
   if ($errs.Count -gt 0) { exit 1 } else { exit 2 }
 }
 
+if ($Open -eq 'GerberZip') {
+  $pcbPart = Resolve-PcbPartNumber $canonical
+  $revLetterOnly = ($revLetter -replace '\d+$', '')
+  if ([string]::IsNullOrWhiteSpace($revLetterOnly)) { $revLetterOnly = $revLetter }
+  $zipBase = "Gerbers $pcbPart Rev $revLetterOnly"
+  $zipPath = Join-Path $prodDocDir ($zipBase + '.zip')
+
+  $needed = 'Gerber', 'NC Drill'
+  $present = New-Object System.Collections.Generic.List[string]
+  foreach ($n in $needed) {
+    $p = Join-Path $prodDocDir $n
+    if (Test-Path -LiteralPath $p -PathType Container) {
+      $null = $present.Add($p)
+    }
+    else {
+      Write-Warning "Missing folder: ``$n`` (expected at ``$p``). Continuing without it."
+    }
+  }
+
+  if ($present.Count -eq 0) {
+    throw "None of the required folders (Gerber, NC Drill) were found under `"$prodDocDir`"."
+  }
+
+  $checkResult = Invoke-FabricationFolderChecks -ProdDocDir $prodDocDir `
+    -TimestampSpreadMinutes $TimestampSpreadMinutes -IncludePfsChecks:$false
+  Show-FabricationFolderCheckReport -ProdDocDir $prodDocDir -RevLetter $revLetter `
+    -TimestampSpreadMinutes $TimestampSpreadMinutes -CheckResult $checkResult `
+    -ReportTitle 'Gerber folder check'
+  if ($checkResult.Errors.Count -gt 0) {
+    throw "Gerber zip aborted: $($checkResult.Errors.Count) check(s) failed."
+  }
+
+  Write-Host ''
+  Write-Host "Zip target: $zipPath"
+
+  Invoke-ZipOverwritePromptIfNeeded -ZipPath $zipPath -ForceZipOverwrite:$ForceZipOverwrite
+  if (Test-Path -LiteralPath $zipPath) {
+    Remove-Item -LiteralPath $zipPath -Force
+  }
+
+  Compress-Archive -Path $present -DestinationPath $zipPath -CompressionLevel Optimal -Force
+
+  Write-Host "Created: $zipPath"
+  Write-Host "Included: $($present | ForEach-Object { Split-Path -Leaf $_ })"
+  Start-Process -FilePath 'explorer.exe' -ArgumentList "/select,`"$zipPath`""
+  exit 0
+}
+
 # Open = FabricationZip
+if ($Open -ne 'FabricationZip') {
+  throw "Unsupported -Open value for zip output: $Open"
+}
 $pcbPart = Resolve-PcbPartNumber $canonical
 # Fabrication zip names use the letter portion only (e.g. "Rev C"), even when
 # the source folder is "Ver C1" — the bare board's rev letter doesn't

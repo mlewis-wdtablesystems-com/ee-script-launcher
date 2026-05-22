@@ -75,6 +75,31 @@
       "problemMatcher": []
     },
     {
+      "label": "Build Altium gerber zip",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-NoExit",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\Open-AltiumPartFolder.ps1",
+        "-PartNumber",
+        "${input:altiumPartNumber}",
+        "-Open",
+        "GerberZip"
+      ],
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Build Altium pick & place zip",
       "type": "shell",
       "command": "powershell.exe",
