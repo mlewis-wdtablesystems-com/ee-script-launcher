@@ -434,6 +434,7 @@ FUNCTIONS: list[FunctionSpec] = [
         id="arena_overwrite_file",
         group="Arena PLM",
         icon="🚲",
+        hidden=True,
         title="Overwrite File on Working Revision",
         description=(
             "Replace an existing file on an item's working revision with a "
@@ -480,6 +481,7 @@ FUNCTIONS: list[FunctionSpec] = [
         id="arena_upload_fab_test",
         group="Arena PLM",
         icon="🍕",
+        hidden=True,
         title="Upload New File",
         description=(
             "Upload a file to an Arena item revision. Resolves the working "
