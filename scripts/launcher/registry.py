@@ -208,6 +208,40 @@ def _optional_switch(values: dict[str, str], name: str, flag: str, *, default: b
 FUNCTIONS: list[FunctionSpec] = [
     # ----- Arena PLM -----
     FunctionSpec(
+        id="arena_upload_all_working_rev_files",
+        group="Arena PLM",
+        icon="📤",
+        title="Upload All Working Revision Files (not inc BOM)",
+        description=(
+            "For a PCBA part number and revision (letter + number, e.g. A1): upload existing "
+            "Fabrication zip to the bare board, build/upload Pick & Place zip (revision letter "
+            "must match Altium), sync Product Image, set PCBA working rev to A1 and bare-board "
+            "working rev to the letter only, then run Check PCBA working-rev files."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="PCBA part number",
+                placeholder="239-10-001",
+                required=True,
+            ),
+            FieldSpec(
+                name="revision",
+                label="Revision (letter + number)",
+                placeholder="A1",
+                required=True,
+            ),
+        ],
+        background=False,
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Upload-AllArenaWorkingRevisionFiles.ps1",
+            "-PartNumber",
+            v["part_number"],
+            "-Revision",
+            (v.get("revision") or "").strip(),
+        ),
+    ),
+    FunctionSpec(
         id="arena_sync_fabrication_gerbers",
         group="Arena PLM",
         icon="📦",

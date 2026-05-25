@@ -45,3 +45,20 @@ function Resolve-PickPlaceZipRevisionLabel {
   }
   return $user.Display
 }
+
+function Get-RevisionLetterOnly {
+  param([Parameter(Mandatory = $true)] [string]$RevisionText)
+  return (Parse-AltiumRevisionToken -RevisionText $RevisionText).Letter
+}
+
+function ConvertTo-PcbaAndBareBoardPartNumbers {
+  param([Parameter(Mandatory = $true)] [string]$PartNumber)
+  $m = [regex]::Match($PartNumber.Trim(), '^(?<prefix>\d+)-(?<asm>10|15)-(?<suffix>\d+)$')
+  if (-not $m.Success) {
+    throw "Part number must be a PCBA (PPP-10-XXX or PPP-15-XXX). Got: '$PartNumber'."
+  }
+  $bareCode = if ($m.Groups['asm'].Value -eq '10') { '20' } else { '25' }
+  $pcba = "$($m.Groups['prefix'].Value)-$($m.Groups['asm'].Value)-$($m.Groups['suffix'].Value)"
+  $bare = "$($m.Groups['prefix'].Value)-$bareCode-$($m.Groups['suffix'].Value)"
+  return [pscustomobject]@{ Pcba = $pcba; Bare = $bare }
+}
