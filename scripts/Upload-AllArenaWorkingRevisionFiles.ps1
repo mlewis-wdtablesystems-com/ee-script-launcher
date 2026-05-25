@@ -6,7 +6,7 @@
   For a PCBA part number (PPP-10-XXX / PPP-15-XXX) and revision (letter + number, e.g. A1):
 
     1. Fabrication zip — upload existing zip to bare-board Arena item (no zip build).
-    2. Pick & Place zip — build zip, upload, use existing if present; revision must match Altium letter.
+    2. Pick & Place zip (optional) — build zip, upload, use existing if present; revision must match Altium letter.
     3. Sync Arena Product Image on the PCBA item.
     4. Set PCBA working revision number to the entered revision (e.g. A1).
     5. Set bare-board (PPP-20/25-XXX) working revision to the letter only (e.g. A).
@@ -20,12 +20,18 @@
 .PARAMETER Revision
   Two-character style revision: one letter + one number (e.g. A1 or A 1).
 
+.PARAMETER IncludePickPlace
+  When set, run Pick & Place zip (build, upload, use existing). Omit to skip that step.
+
 .EXAMPLE
   .\Upload-AllArenaWorkingRevisionFiles.ps1 -PartNumber 239-10-001 -Revision A1
+.EXAMPLE
+  .\Upload-AllArenaWorkingRevisionFiles.ps1 -PartNumber 239-10-001 -Revision A1 -IncludePickPlace
 #>
 param(
   [Parameter(Mandatory = $true)] [string]$PartNumber,
-  [Parameter(Mandatory = $true)] [string]$Revision
+  [Parameter(Mandatory = $true)] [string]$Revision,
+  [switch]$IncludePickPlace
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,7 +46,9 @@ $ppWorkflow    = Join-Path $scriptsDir 'Invoke-AltiumPickPlaceZipWorkflow.ps1'
 $imageSync     = Join-Path $scriptsDir 'Sync-ArenaProductImage.ps1'
 $setRevScript  = Join-Path $scriptsDir 'Set-ArenaItemWorkingRevisionNumber.ps1'
 $checkScript   = Join-Path $scriptsDir 'Check-ArenaPcbaFiles.ps1'
-foreach ($p in @($fabWorkflow, $ppWorkflow, $imageSync, $setRevScript, $checkScript)) {
+$requiredScripts = @($fabWorkflow, $imageSync, $setRevScript, $checkScript)
+if ($IncludePickPlace) { $requiredScripts += $ppWorkflow }
+foreach ($p in $requiredScripts) {
   if (-not (Test-Path -LiteralPath $p)) { throw "Required script missing: $p" }
 }
 
@@ -66,6 +74,7 @@ Write-Host ("  PCBA part:              {0}" -f $pcbaPn)
 Write-Host ("  Bare board (Arena):     {0}" -f $barePn)
 Write-Host ("  Revision (PCBA):        {0}" -f $pcbaRev)
 Write-Host ("  Revision (bare letter): {0}" -f $bareRev)
+Write-Host ("  Include Pick & Place:   {0}" -f $(if ($IncludePickPlace) { 'yes' } else { 'no' }))
 Write-Host ''
 
 function Invoke-Step {
@@ -86,11 +95,17 @@ Invoke-Step -Title 'Fabrication zip (upload existing file only)' -Action {
     -PartNumber $pcbaPn -UploadToArena -UseExistingFile
 }
 
-Invoke-Step -Title 'Pick & Place zip (build, upload, use existing)' -Action {
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ppWorkflow `
-    -PartNumber $pcbaPn `
-    -RevisionOverride $pcbaRev `
-    -CreateZip -UploadToArena -UseExistingFile
+if ($IncludePickPlace) {
+  Invoke-Step -Title 'Pick & Place zip (build, upload, use existing)' -Action {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ppWorkflow `
+      -PartNumber $pcbaPn `
+      -RevisionOverride $pcbaRev `
+      -CreateZip -UploadToArena -UseExistingFile
+  }
+} else {
+  Write-Host ''
+  Write-Host '=== Pick & Place zip ===' -ForegroundColor Cyan
+  Write-Host '  Skipped (Include Pick & Place not selected).' -ForegroundColor DarkGray
 }
 
 Invoke-Step -Title 'Sync Arena Product Image' -Action {

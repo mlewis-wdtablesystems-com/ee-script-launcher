@@ -214,9 +214,10 @@ FUNCTIONS: list[FunctionSpec] = [
         title="Upload All Working Revision Files (not inc BOM)",
         description=(
             "For a PCBA part number and revision (letter + number, e.g. A1): upload existing "
-            "Fabrication zip to the bare board, build/upload Pick & Place zip (revision letter "
-            "must match Altium), sync Product Image, set PCBA working rev to A1 and bare-board "
-            "working rev to the letter only, then run Check PCBA working-rev files."
+            "Fabrication zip to the bare board, optionally build/upload Pick & Place zip "
+            "(revision letter must match Altium when included), sync Product Image, set PCBA "
+            "working rev to A1 and bare-board working rev to the letter only, then run "
+            "Check PCBA working-rev files."
         ),
         fields=[
             FieldSpec(
@@ -231,6 +232,12 @@ FUNCTIONS: list[FunctionSpec] = [
                 placeholder="A1",
                 required=True,
             ),
+            FieldSpec(
+                name="include_pick_place",
+                label="Include Pick & Place",
+                kind="checkbox",
+                default="1",
+            ),
         ],
         background=False,
         build_command=lambda v: _ps(
@@ -239,6 +246,7 @@ FUNCTIONS: list[FunctionSpec] = [
             v["part_number"],
             "-Revision",
             (v.get("revision") or "").strip(),
+            *_optional_switch(v, "include_pick_place", "-IncludePickPlace", default=True),
         ),
     ),
     FunctionSpec(
