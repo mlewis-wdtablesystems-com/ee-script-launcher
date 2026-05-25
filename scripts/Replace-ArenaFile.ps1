@@ -111,13 +111,12 @@ Write-Output ("  current edition: {0}  ->  new edition: {1}" -f $fileDetails.edi
 Write-Output ("  current title:   '{0}'  ->  new title: '{1}'" -f $fileDetails.title, $Title)
 Write-Output ("  category (kept): {0}" -f $fileDetails.category.path)
 Write-Output ("  new content:     {0} ({1} bytes)" -f $fileName, $fileInfo.Length)
-Write-Output ("  author:          {0}" -f $Author)
+Write-Output ("  session author:  {0} (not sent in multipart; Arena uses login user)" -f $Author)
 if ($fileDetails.locked) {
-  Write-Warning (
-    "Arena file $($fileDetails.number) reports locked/checked out. " +
-    "Proceeding with POST /files/<guid>/editions for edition $NewEdition anyway; " +
-    "if Arena rejects the request, clear checkout in the UI or check in the file first."
-  )
+  Write-Host (
+    "Note: Arena GET /files reports locked=true for $($fileDetails.number); " +
+    "posting edition $NewEdition anyway (matches manual replace in the UI when not checked out)."
+  ) -ForegroundColor DarkGray
 }
 
 # ---- hand-built multipart body ----
@@ -127,9 +126,10 @@ if ($fileDetails.locked) {
 # as plain `edition`, `title`, etc. returns 400 "attribute X is not
 # recognized" even though the docs sample shows them unprefixed.
 #
-# Category/format/etc. can be inherited from the existing file; we send
-# author.fullName so the new edition credits the current Windows session user
-# unless -Author was supplied explicitly.
+# Category/format/etc. are inherited from the existing file. Do not send
+# author.fullName on this endpoint — Arena returns 4074 ("attribute not recognized")
+# when author is sent unprefixed; file.author.fullName is also rejected on some
+# workspaces. The logged-in Arena user is credited automatically.
 
 $boundary = [System.Guid]::NewGuid().ToString('N')
 $enc = [System.Text.Encoding]::UTF8
@@ -156,8 +156,6 @@ function Add-MultipartFile { param([System.IO.MemoryStream]$Stream, [string]$Bou
 Add-MultipartField $bodyStream $boundary 'file.edition' $NewEdition
 Add-MultipartField $bodyStream $boundary 'file.title'   $Title
 Add-MultipartField $bodyStream $boundary 'file.format'  $fileFormat
-# Arena multipart sample uses plain author.fullName (alongside file.* fields).
-Add-MultipartField $bodyStream $boundary 'author.fullName' $Author
 
 $fileBytes = [System.IO.File]::ReadAllBytes($FilePath)
 Add-MultipartFile $bodyStream $boundary 'content' $fileName $fileBytes

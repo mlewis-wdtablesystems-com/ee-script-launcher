@@ -215,10 +215,10 @@ if ($pnp.Count -gt 0) {
   $pnpUnlocked = @($pnp | Where-Object { -not (Test-ArenaFileRowLocked $_) })
   $pool = $pnpUnlocked
   if ($pool.Count -eq 0) {
-    Write-Warning (
-      "All $($pnp.Count) 'Pick and Place' file(s) on the working revision report locked/checked out. " +
-      "Selecting the best-matching file by title and edition to post the next edition (current + 1) anyway."
-    )
+    Write-Host (
+      "Arena file list marked all $($pnp.Count) 'Pick and Place' row(s) as locked; " +
+      "using best title/edition match for the next edition anyway."
+    ) -ForegroundColor DarkGray
     $pool = $pnp
   }
 

@@ -220,10 +220,10 @@ if ($illus.Count -gt 0) {
   $unlocked = @($illus | Where-Object { -not (Test-ArenaFileRowLocked $_) })
   $pool = $unlocked
   if ($pool.Count -eq 0) {
-    Write-Warning (
-      "All $($illus.Count) 'Illustrative Image' file(s) on the working revision report locked/checked out. " +
-      "Selecting the best-matching file by title and edition to post the next edition (current + 1) anyway."
-    )
+    Write-Host (
+      "Arena file list marked all $($illus.Count) 'Illustrative Image' row(s) as locked; " +
+      "using best title/edition match for the next edition anyway."
+    ) -ForegroundColor DarkGray
     $pool = $illus
   }
   $pref = @($pool | Where-Object {
