@@ -215,7 +215,8 @@ FUNCTIONS: list[FunctionSpec] = [
         description=(
             "For a PCBA part number and revision (letter + number, e.g. A1): upload existing "
             "Fabrication zip to the bare board, optionally build/upload Pick & Place zip "
-            "(revision letter must match Altium when included), sync Product Image, set PCBA "
+            "(revision letter must match Altium when included), sync Product Image when "
+            "not already at that revision, set PCBA "
             "working rev to A1 and bare-board working rev to the letter only, then run "
             "Check PCBA working-rev files."
         ),
@@ -450,8 +451,9 @@ FUNCTIONS: list[FunctionSpec] = [
             "For a PCBA part number (PPP-10-XXX or PPP-15-XXX), verify the "
             "working revision has a Pick and Place + Illustrative Image "
             "file, and that the matching bare board (PPP-20-XXX / PPP-25-XXX) "
-            "has an Altium Gerber Files file. Each file's title must end "
-            "with 'Rev <X>' matching the working revision."
+            "has an Altium Gerber Files file. Pick & Place titles must match "
+            "revision letter and number; Gerber and product image titles need "
+            "only the revision letter."
         ),
         fields=[
             FieldSpec(

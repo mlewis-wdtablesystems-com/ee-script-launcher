@@ -7,7 +7,7 @@
 
     1. Fabrication zip — upload existing zip to bare-board Arena item (no zip build).
     2. Pick & Place zip (optional) — build zip, upload, use existing if present; revision must match Altium letter.
-    3. Sync Arena Product Image on the PCBA item.
+    3. Sync Arena Product Image on the PCBA item (skipped if an image at that revision already exists).
     4. Set PCBA working revision number to the entered revision (e.g. A1).
     5. Set bare-board (PPP-20/25-XXX) working revision to the letter only (e.g. A).
     6. Run Check PCBA working-rev files.
@@ -124,8 +124,12 @@ Invoke-Step -Title "Set bare-board working revision ($barePn -> $bareRev)" -Acti
 }
 
 Invoke-Step -Title 'Check PCBA working-rev files' -Action {
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $checkScript `
-    -PartNumber $pcbaPn -ExpectedRevision $pcbaRev
+  $checkArgs = @(
+    '-PartNumber', $pcbaPn,
+    '-ExpectedRevision', $pcbaRev
+  )
+  if (-not $IncludePickPlace) { $checkArgs += '-SkipPickPlace' }
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $checkScript @checkArgs
 }
 
 Write-Host ''

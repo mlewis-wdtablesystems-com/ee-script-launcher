@@ -29,15 +29,21 @@
   PCBA internal part number, e.g. 251-10-001 or 251-15-001.
 
 .PARAMETER ExpectedRevision
-  Optional override (e.g. "B" or "AA"). When omitted, the script tries
+  Optional override (e.g. "B" or "B1"). When omitted, the script tries
   the working revision's letter and falls back to the effective letter.
+
+.PARAMETER SkipPickPlace
+  Do not require or verify a Pick and Place file on the PCBA item.
 
 .EXAMPLE
   .\Check-ArenaPcbaFiles.ps1 -PartNumber 251-10-001
+.EXAMPLE
+  .\Check-ArenaPcbaFiles.ps1 -PartNumber 251-10-001 -SkipPickPlace
 #>
 param(
   [Parameter(Mandatory = $true)] [string]$PartNumber,
   [string]$ExpectedRevision = '',
+  [switch]$SkipPickPlace,
   [string]$Email = $env:ARENA_EMAIL,
   [string]$WorkspaceId = $env:ARENA_WORKSPACE_ID,
   [string]$BaseUrl = 'https://api.arenasolutions.com/v1'
@@ -276,14 +282,18 @@ function Report-Item {
   Write-Output ''
 }
 
-# Pick and Place / Altium Gerber Files use strict matching (letter + number
-# must match). Illustrative Image only needs the letter portion to match.
+# Pick and Place: strict (letter + number). Illustrative Image and Gerber files:
+# letter portion only (e.g. expected A1 accepts Rev A on fabrication zip title).
 $pcbaRequired = @(
-  @{ Name = 'Pick and Place';     MatchMode = 'strict'      },
   @{ Name = 'Illustrative Image'; MatchMode = 'letter_only' }
 )
+if (-not $SkipPickPlace) {
+  $pcbaRequired = @(
+    @{ Name = 'Pick and Place'; MatchMode = 'strict' }
+  ) + $pcbaRequired
+}
 $bareRequired = @(
-  @{ Name = 'Altium Gerber Files'; MatchMode = 'strict' }
+  @{ Name = 'Altium Gerber Files'; MatchMode = 'letter_only' }
 )
 
 Report-Item -Info $pcba -Label 'PCBA'       -RequiredCategories $pcbaRequired

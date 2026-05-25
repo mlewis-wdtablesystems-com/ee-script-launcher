@@ -89,6 +89,30 @@ function Get-RevLetterOnly([string]$revLetter) {
   throw "Could not derive a letter-only revision from '$revLetter'."
 }
 
+function Get-RevLetterFromTitle([string]$Title) {
+  if ([string]::IsNullOrWhiteSpace($Title)) { return $null }
+  $m = [regex]::Match($Title.Trim(), '(?i)\bRev\s+([A-Za-z]+)')
+  if ($m.Success) { return $m.Groups[1].Value.ToUpperInvariant() }
+  return $null
+}
+
+function Test-IllustrativeImageAlreadyAtRevision {
+  param(
+    [object[]]$IllustrativeRows,
+    [string]$ExpectedTitle,
+    [string]$RevLetterOnly
+  )
+  foreach ($row in $IllustrativeRows) {
+    if (-not $row) { continue }
+    $t = ("$($row.title)").Trim()
+    if ($t.Length -eq 0) { continue }
+    if ($t -ceq $ExpectedTitle) { return $true }
+    $fileRev = Get-RevLetterFromTitle -Title $t
+    if ($fileRev -and $fileRev -ceq $RevLetterOnly) { return $true }
+  }
+  return $false
+}
+
 function Test-IsIllustrativeImageCategory([object]$FileRow) {
   if (-not $FileRow) { return $false }
   $n = $FileRow.category_name
@@ -207,6 +231,16 @@ if ($revInfo) {
 
 Write-Host ("  Total files on working rev: {0}" -f $allFiles.Count)
 Write-Host ("  'Illustrative Image' files: {0}" -f $illus.Count)
+
+if (Test-IllustrativeImageAlreadyAtRevision -IllustrativeRows $illus -ExpectedTitle $arenaTitle -RevLetterOnly $revLetterOnly) {
+  Write-Host ''
+  Write-Host '=== Skipping product image upload ===' -ForegroundColor DarkGray
+  Write-Host (
+    "  Illustrative Image already on working revision for Rev $revLetterOnly " +
+    "(title matches '$arenaTitle' or same revision letter)."
+  )
+  exit 0
+}
 
 $titlesForDup = @(
   $pngItem.Name
