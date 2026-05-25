@@ -242,6 +242,40 @@ FUNCTIONS: list[FunctionSpec] = [
         ),
     ),
     FunctionSpec(
+        id="arena_set_pcba_working_revisions",
+        group="Arena PLM",
+        icon="🔢",
+        title="Set PCBA and PCB working revisions",
+        description=(
+            "For a PCBA part number and revision (letter + number, e.g. A1): set the "
+            "PCBA working revision to the full value (A1) and the mapped bare-board item "
+            "(PPP-20 / PPP-25) working revision to the letter only (A). Read-only aside "
+            "from Arena revision numbers."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="PCBA part number",
+                placeholder="239-10-001",
+                required=True,
+            ),
+            FieldSpec(
+                name="revision",
+                label="Revision (letter + number)",
+                placeholder="A1",
+                required=True,
+            ),
+        ],
+        background=False,
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Set-ArenaPcbaWorkingRevisions.ps1",
+            "-PartNumber",
+            v["part_number"],
+            "-Revision",
+            (v.get("revision") or "").strip(),
+        ),
+    ),
+    FunctionSpec(
         id="arena_sync_fabrication_gerbers",
         group="Arena PLM",
         icon="📦",
