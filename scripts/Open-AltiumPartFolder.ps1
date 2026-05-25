@@ -73,10 +73,13 @@ param(
   [Parameter(Mandatory = $false)]
   [string]$Root = 'C:\Users\mlewis\OneDrive - Walker Digital\WTDS-RDAustralia - Documents\23. Altium',
   [Parameter(Mandatory = $false)]
-  [switch]$ForceZipOverwrite
+  [switch]$ForceZipOverwrite,
+  [Parameter(Mandatory = $false)]
+  [string]$RevisionOverride = ''
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Definition) 'AltiumRevisionHelpers.ps1')
 
 function Invoke-ZipOverwritePromptIfNeeded {
   param(
@@ -763,7 +766,12 @@ if ($Open -eq 'PickPlaceZip') {
     throw "More than one .txt file in Pick Place folder: $names"
   }
 
-  $zipBase = "Pick Place $canonical Rev $revLetter"
+  $zipRev = Resolve-PickPlaceZipRevisionLabel -AltiumRevision $revLetter -RevisionOverride $RevisionOverride
+  if (-not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
+    Write-Host "  Revision (Altium):          $revLetter"
+    Write-Host "  Revision (zip name):      $zipRev"
+  }
+  $zipBase = "Pick Place $canonical Rev $zipRev"
   $zipPath = Join-Path $prodDocDir ($zipBase + '.zip')
   Write-Host "Zip target: $zipPath"
 

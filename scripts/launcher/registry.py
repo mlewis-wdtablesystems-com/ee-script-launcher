@@ -1024,14 +1024,21 @@ FUNCTIONS: list[FunctionSpec] = [
         title="Pick & Place zip",
         description=(
             "Optionally zip the production 'Pick Place' folder into "
-            "'Pick Place PPP-TT-XXX Rev <X>.zip', then optionally upload or replace "
-            "'Pick and Place' on the PCBA Arena working revision."
+            "'Pick Place PPP-TT-XXX Rev <letter><number>.zip', then optionally upload or "
+            "replace 'Pick and Place' on the PCBA Arena working revision. Revision entry "
+            "must match the Altium revision letter; the number you enter is used in the zip name."
         ),
         fields=[
             FieldSpec(
                 name="part_number",
                 label="Part number",
                 placeholder="294-10-022 or 294-20-022",
+                required=True,
+            ),
+            FieldSpec(
+                name="revision",
+                label="Revision (letter + number)",
+                placeholder="D1",
                 required=True,
             ),
             FieldSpec(
@@ -1058,6 +1065,8 @@ FUNCTIONS: list[FunctionSpec] = [
             SCRIPTS_DIR / "Invoke-AltiumPickPlaceZipWorkflow.ps1",
             "-PartNumber",
             v["part_number"],
+            "-RevisionOverride",
+            (v.get("revision") or "").strip(),
             *_optional_switch(v, "create_zip", "-CreateZip", default=True),
             *_optional_switch(v, "upload_to_arena", "-UploadToArena"),
             *_optional_switch(v, "use_existing_file", "-UseExistingFile"),

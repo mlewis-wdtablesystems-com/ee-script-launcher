@@ -26,17 +26,23 @@
 .PARAMETER ForceUpload
   Skip the duplicate-filename confirmation (used when the launcher user chose Yes).
 
+.PARAMETER RevisionOverride
+  Optional revision for the zip name (letter + number, e.g. D1). Letter must match Altium;
+  used when locating or building the zip and for Arena upload title matching.
+
 .EXAMPLE
   .\Sync-ArenaPickPlaceZip.ps1 -PartNumber 294-10-022
   .\Sync-ArenaPickPlaceZip.ps1 -PartNumber 294-20-022
 #>
 param(
   [Parameter(Mandatory = $true)] [string]$PartNumber,
+  [string]$RevisionOverride = '',
   [switch]$ForceUpload,
   [switch]$SkipZipBuildIfMissing
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Definition) 'AltiumRevisionHelpers.ps1')
 $OutputEncoding = [System.Text.Encoding]::UTF8
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
@@ -157,9 +163,13 @@ if ($asmSegs.Count -eq 3) {
 Write-Host "  Production document folder: $prodDocDir"
 Write-Host "  Canonical (zip name):       $canonical"
 Write-Host "  PCBA part (Arena):          $assemblyPn"
+$zipRev = Resolve-PickPlaceZipRevisionLabel -AltiumRevision $revLetter -RevisionOverride $RevisionOverride
 Write-Host "  Revision (from Altium):     $revLetter"
+if (-not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
+  Write-Host "  Revision (zip name):        $zipRev"
+}
 
-$zipBase = "Pick Place $canonical Rev $revLetter"
+$zipBase = "Pick Place $canonical Rev $zipRev"
 $zipPath = Join-Path $prodDocDir ($zipBase + '.zip')
 Write-Host "  Expected zip:               $zipPath"
 
@@ -170,8 +180,16 @@ if (-not (Test-Path -LiteralPath $zipPath)) {
   }
   Write-Host ''
   Write-Host "=== Pick & Place zip not found; running Build Pick & Place zip ==="
-  $ppOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass `
-    -File $openScript -PartNumber $PartNumber.Trim() -Open PickPlaceZip 2>&1
+  $buildArgs = @(
+    '-NoProfile', '-ExecutionPolicy', 'Bypass',
+    '-File', $openScript,
+    '-PartNumber', $PartNumber.Trim(),
+    '-Open', 'PickPlaceZip'
+  )
+  if (-not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
+    $buildArgs += '-RevisionOverride', $RevisionOverride.Trim()
+  }
+  $ppOut = & powershell.exe @buildArgs 2>&1
   Write-Host (($ppOut | ForEach-Object { "$_" }) -join "`n")
   if ($LASTEXITCODE -ne 0) {
     throw "Build Pick & Place zip failed (exit $LASTEXITCODE)."

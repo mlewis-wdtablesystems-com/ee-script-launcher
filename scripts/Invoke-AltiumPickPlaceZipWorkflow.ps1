@@ -13,9 +13,14 @@
 
 .PARAMETER UseExistingFile
   When uploading: use the zip already in the production folder; do not build if missing.
+
+.PARAMETER RevisionOverride
+  Optional revision for the zip name (letter + number, e.g. D1). The letter must match the
+  revision letter from Altium outputs; the number you specify is used in the zip file name.
 #>
 param(
   [Parameter(Mandatory = $true)] [string]$PartNumber,
+  [string]$RevisionOverride = '',
   [switch]$CreateZip,
   [switch]$UploadToArena,
   [switch]$UseExistingFile,
@@ -49,6 +54,9 @@ if ($CreateZip) {
     '-PartNumber', $pn,
     '-Open', 'PickPlaceZip'
   )
+  if (-not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
+    $openArgs += '-RevisionOverride', $RevisionOverride.Trim()
+  }
   if ($ForceZipOverwrite) { $openArgs += '-ForceZipOverwrite' }
   $ppOut = & powershell.exe @openArgs 2>&1
   Write-Host (($ppOut | ForEach-Object { "$_" }) -join "`n")
@@ -61,6 +69,9 @@ if ($UploadToArena) {
   Write-Host ''
   Write-Host '=== Upload Zip File to Arena (Pick & Place) ==='
   $syncArgs = @('-File', $syncScript, '-PartNumber', $pn)
+  if (-not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
+    $syncArgs += '-RevisionOverride', $RevisionOverride.Trim()
+  }
   if ($CreateZip -or $UseExistingFile) {
     $syncArgs += '-SkipZipBuildIfMissing'
   }
