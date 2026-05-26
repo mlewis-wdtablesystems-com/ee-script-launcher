@@ -26,6 +26,8 @@ cd scripts\launcher
 
 Open the URL shown in the console (default http://127.0.0.1:8765).
 
+Starting the launcher again stops any prior instance on that port (use `run.ps1 -NoForce` to keep an existing server).
+
 ## Version control
 
 This repository uses **git**. Make focused commits with clear messages after each completed change. Do not commit secrets, `.env` files, virtualenvs, logs, or large generated CSV/xlsx exports.
