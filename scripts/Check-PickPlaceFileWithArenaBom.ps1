@@ -456,7 +456,7 @@ Write-ListSection -Title "P&P rows for Arena NF/DNF lines ($($nfInPp.Count))" -C
 Write-ListSection -Title "PCB part(s) OK missing from P&P ($($pcbMissingOk.Count))" -Color DarkGreen -Items $pcbMissingOk -Formatter {
   param($des)
   $a = $designatorMap[$des]
-  Write-Host ("  {0}  {1}  (board item — not required in Pick & Place)" -f $des, $a.PartNumber) -ForegroundColor DarkGreen
+  Write-Host ('  {0}  {1}  (board item - not required in Pick and Place)' -f $des, $a.PartNumber) -ForegroundColor DarkGreen
 }
 
 if ($skippedNonComponent -gt 0) {
