@@ -154,7 +154,7 @@
                 <div class="output" hidden>
                   <div class="output-actions" hidden>
                     <button type="button" class="open-report-window">Open full report in new window</button>
-                    <button type="button" class="expand-report-here">Expand report here</button>
+                    <button type="button" class="expand-report-here">Collapse report here</button>
                   </div>
                   <div class="cmd"></div>
                   <pre class="stdout"></pre>
@@ -495,9 +495,15 @@
       const stderrText = data.stderr || data.error || "";
       const showActions = shouldOfferReportActions(data.stdout, stderrText);
       if (actionsEl) actionsEl.hidden = !showActions;
-      if (!showActions) {
-        output.classList.remove("output-expanded");
-        if (ctx.expandBtn) ctx.expandBtn.textContent = "Expand report here";
+      const hasContent = Boolean(
+        String(data.stdout || "").trim() || String(stderrText).trim()
+      );
+      if (hasContent) {
+        output.classList.remove("output-collapsed");
+        if (ctx.expandBtn) ctx.expandBtn.textContent = "Collapse report here";
+      } else if (!showActions) {
+        output.classList.remove("output-collapsed");
+        if (ctx.expandBtn) ctx.expandBtn.textContent = "Collapse report here";
       }
       let statusLabel = "";
       if (!data.background && data.exit_code != null) {
@@ -600,10 +606,10 @@
       }
       if (expandReportBtn) {
         expandReportBtn.addEventListener("click", () => {
-          const expanded = output.classList.toggle("output-expanded");
-          expandReportBtn.textContent = expanded
-            ? "Collapse report here"
-            : "Expand report here";
+          const collapsed = output.classList.toggle("output-collapsed");
+          expandReportBtn.textContent = collapsed
+            ? "Expand report here"
+            : "Collapse report here";
         });
       }
 
@@ -741,8 +747,8 @@
         status.textContent = "";
         output.hidden = true;
         if (actionsEl) actionsEl.hidden = true;
-        output.classList.remove("output-expanded");
-        if (expandReportBtn) expandReportBtn.textContent = "Expand report here";
+        output.classList.remove("output-collapsed");
+        if (expandReportBtn) expandReportBtn.textContent = "Collapse report here";
         outputCtx.lastReport = null;
         setProceedVisible(false);
         setDuplicatePromptVisible(false);

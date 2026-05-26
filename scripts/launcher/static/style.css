@@ -541,9 +541,11 @@ button.run:disabled { opacity: 0.6; cursor: progress; }
   color: var(--accent);
 }
 
-.output.output-expanded .stdout,
-.output.output-expanded .stderr {
-  max-height: none;
+/* Report output is full height by default; collapse via .output-collapsed on the panel */
+.output.output-collapsed .stdout,
+.output.output-collapsed .stderr {
+  max-height: 360px;
+  overflow: auto;
 }
 
 .cmd {
@@ -564,8 +566,8 @@ button.run:disabled { opacity: 0.6; cursor: progress; }
   padding: 8px;
   border-radius: 4px;
   margin: 0;
-  max-height: 360px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   white-space: pre-wrap;
   word-break: break-word;
 }
