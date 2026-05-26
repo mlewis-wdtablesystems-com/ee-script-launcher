@@ -413,14 +413,7 @@
       return combined.length >= REPORT_OPEN_MIN_CHARS || lines >= REPORT_OPEN_MIN_LINES;
     }
 
-    function openLauncherReportWindow({ title, command, stdout, stderr, statusLabel }) {
-      const w = window.open("", "_blank", "noopener,noreferrer,width=1000,height=900");
-      if (!w) {
-        window.alert(
-          "Could not open a new window. Allow pop-ups for this launcher page, or use Expand report here."
-        );
-        return;
-      }
+    function buildLauncherReportHtml({ title, command, stdout, stderr, statusLabel }) {
       const parts = [];
       if (statusLabel) {
         parts.push(`<p class="meta">${escapeHtml(statusLabel)}</p>`);
@@ -437,11 +430,14 @@
         parts.push("<h2>Errors / warnings</h2>");
         parts.push(`<pre class="block err">${escapeHtml(stderr)}</pre>`);
       }
-      const page = `<!DOCTYPE html>
+      if (parts.length === 0) {
+        parts.push('<p class="meta">(No output captured.)</p>');
+      }
+      return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>${escapeHtml(title)} — report</title>
+  <title>${escapeHtml(title)} - report</title>
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -483,9 +479,28 @@
   ${parts.join("\n  ")}
 </body>
 </html>`;
-      w.document.open();
-      w.document.write(page);
-      w.document.close();
+    }
+
+    function openLauncherReportWindow(report) {
+      const page = buildLauncherReportHtml(report);
+      const blob = new Blob([page], { type: "text/html;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, "_blank");
+      if (!w) {
+        URL.revokeObjectURL(url);
+        window.alert(
+          "Could not open a new window. Allow pop-ups for this launcher page, or use Collapse report here."
+        );
+        return;
+      }
+      w.addEventListener(
+        "load",
+        () => {
+          URL.revokeObjectURL(url);
+        },
+        { once: true }
+      );
+      setTimeout(() => URL.revokeObjectURL(url), 120000);
     }
 
     function applyRunOutputToCard(ctx, data) {
