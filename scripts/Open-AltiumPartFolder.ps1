@@ -347,15 +347,23 @@ function Invoke-FabricationFolderChecks {
     $null = $errors.Add("ERROR: Gerber folder must contain at least 8 files (found $($gerberFiles.Count)).")
   }
 
-  # 3. NC Drill must contain at least 2 files (simple boards may only have report + drill pair)
+  # 3. NC Drill minimum depends on Gerber file count (simple boards: <=10 Gerber -> min 2)
+  $ncDrillMin = if ($gerberFiles.Count -le 10) { 2 } else { 3 }
   $ncDrillDir = Join-Path $ProdDocDir 'NC Drill'
   $ncDrillFiles = @()
   if (Test-Path -LiteralPath $ncDrillDir -PathType Container) {
     $ncDrillFiles = @(Get-ChildItem -LiteralPath $ncDrillDir -File -ErrorAction SilentlyContinue)
   }
-  if ($ncDrillFiles.Count -lt 2) {
+  if ($ncDrillFiles.Count -lt $ncDrillMin) {
     $listed = if ($ncDrillFiles.Count -eq 0) { '(none)' } else { ($ncDrillFiles | Sort-Object Name | ForEach-Object { $_.Name }) -join ', ' }
-    $null = $errors.Add("ERROR: NC Drill folder must contain at least 2 files (found $($ncDrillFiles.Count): $listed).")
+    $gerberNote = if ($gerberFiles.Count -le 10) {
+      "Gerber has $($gerberFiles.Count) file(s) (<=10), minimum $ncDrillMin NC Drill file(s) required."
+    } else {
+      "Gerber has $($gerberFiles.Count) file(s) (>10), minimum $ncDrillMin NC Drill file(s) required."
+    }
+    $null = $errors.Add(
+      "ERROR: NC Drill folder must contain at least $ncDrillMin file(s) (found $($ncDrillFiles.Count): $listed). $gerberNote"
+    )
   }
 
   # 4. Gerber duplicate-extension warnings
