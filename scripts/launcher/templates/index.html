@@ -152,6 +152,10 @@
                 {% endif %}
 
                 <div class="output" hidden>
+                  <div class="output-actions" hidden>
+                    <button type="button" class="open-report-window">Open full report in new window</button>
+                    <button type="button" class="expand-report-here">Expand report here</button>
+                  </div>
                   <div class="cmd"></div>
                   <pre class="stdout"></pre>
                   {% if fn.proceed_after_fail %}
@@ -183,7 +187,7 @@
         <h2>Recent part numbers</h2>
         <button type="button" id="recent-clear" title="Clear list">clear</button>
       </header>
-      <p class="recent-hint">Shows your 15 most recent part numbers (newest first). The latest is filled into every part-number field when you open this page.</p>
+      <p class="recent-hint">Shows your 15 most recent part numbers (sorted numerically, e.g. 213-15-006 before 292-15-001). The latest used is filled into every part-number field when you open this page.</p>
       <ul id="recent-pn-list" class="recent-list"></ul>
     </aside>
   </div>
@@ -267,6 +271,19 @@
       const arr = loadRecents();
       return arr.length ? arr[arr.length - 1] : "";
     }
+    function partNumberSortKey(pn) {
+      const m = String(pn).trim().match(/^(\d+)-(\d+)-(\d+)$/);
+      if (!m) return [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, pn];
+      return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10), pn];
+    }
+    function comparePartNumbers(a, b) {
+      const ka = partNumberSortKey(a);
+      const kb = partNumberSortKey(b);
+      for (let i = 0; i < 3; i++) {
+        if (ka[i] !== kb[i]) return ka[i] - kb[i];
+      }
+      return String(ka[3]).localeCompare(String(kb[3]));
+    }
     function pushRecent(value) {
       const v = (value || "").trim();
       if (!v) return;
@@ -306,7 +323,7 @@
         stored = stored.slice(-RECENT_LIMIT);
         saveRecents(stored);
       }
-      const arr = stored.slice().reverse();
+      const arr = stored.slice().sort(comparePartNumbers);
       recentList.innerHTML = "";
       if (!arr.length) {
         const li = document.createElement("li");
@@ -376,6 +393,129 @@
       }
     }
 
+    const REPORT_OPEN_MIN_CHARS = 280;
+    const REPORT_OPEN_MIN_LINES = 12;
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function shouldOfferReportActions(stdout, stderr) {
+      const combined = `${stdout || ""}\n${stderr || ""}`.trim();
+      if (!combined) return false;
+      const lines = combined.split("\n").length;
+      return combined.length >= REPORT_OPEN_MIN_CHARS || lines >= REPORT_OPEN_MIN_LINES;
+    }
+
+    function openLauncherReportWindow({ title, command, stdout, stderr, statusLabel }) {
+      const w = window.open("", "_blank", "noopener,noreferrer,width=1000,height=900");
+      if (!w) {
+        window.alert(
+          "Could not open a new window. Allow pop-ups for this launcher page, or use Expand report here."
+        );
+        return;
+      }
+      const parts = [];
+      if (statusLabel) {
+        parts.push(`<p class="meta">${escapeHtml(statusLabel)}</p>`);
+      }
+      if (command) {
+        parts.push("<h2>Command</h2>");
+        parts.push(`<pre class="block cmd">${escapeHtml(command)}</pre>`);
+      }
+      if (stdout) {
+        parts.push("<h2>Output</h2>");
+        parts.push(`<pre class="block out">${escapeHtml(stdout)}</pre>`);
+      }
+      if (stderr) {
+        parts.push("<h2>Errors / warnings</h2>");
+        parts.push(`<pre class="block err">${escapeHtml(stderr)}</pre>`);
+      }
+      const page = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(title)} — report</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0;
+      padding: 20px 24px 32px;
+      font-family: system-ui, Segoe UI, sans-serif;
+      line-height: 1.4;
+      background: #f6f7f9;
+      color: #1a1a1a;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #1e1e1e; color: #e8e8e8; }
+      pre { background: #2a2a2a; border-color: #444; }
+      .err { border-left-color: #e57373; }
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 8px; }
+    h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin: 20px 0 8px; }
+    @media (prefers-color-scheme: dark) { h2 { color: #aaa; } }
+    .meta { font-size: 0.9rem; color: #444; margin: 0 0 16px; }
+    @media (prefers-color-scheme: dark) { .meta { color: #bbb; } }
+    pre.block {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 13px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+      padding: 14px 16px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #fff;
+      overflow-x: auto;
+    }
+    pre.err { border-left: 4px solid #c62828; }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(title)}</h1>
+  ${parts.join("\n  ")}
+</body>
+</html>`;
+      w.document.open();
+      w.document.write(page);
+      w.document.close();
+    }
+
+    function applyRunOutputToCard(ctx, data) {
+      const { output, cmdEl, outEl, errEl, actionsEl } = ctx;
+      output.hidden = false;
+      cmdEl.textContent = data.command || "";
+      outEl.textContent = data.stdout || "";
+      errEl.textContent = data.stderr || data.error || "";
+      const stderrText = data.stderr || data.error || "";
+      const showActions = shouldOfferReportActions(data.stdout, stderrText);
+      if (actionsEl) actionsEl.hidden = !showActions;
+      if (!showActions) {
+        output.classList.remove("output-expanded");
+        if (ctx.expandBtn) ctx.expandBtn.textContent = "Expand report here";
+      }
+      let statusLabel = "";
+      if (!data.background && data.exit_code != null) {
+        statusLabel = data.ok
+          ? `Completed successfully (exit ${data.exit_code})`
+          : `Finished with errors (exit ${data.exit_code})`;
+      } else if (data.background) {
+        statusLabel = "Started in background";
+      }
+      ctx.lastReport = {
+        title: ctx.cardTitle,
+        command: data.command || "",
+        stdout: data.stdout || "",
+        stderr: stderrText,
+        statusLabel,
+      };
+    }
+
     function zipOverwritePromptFromStdout(stdout) {
       const marker = "---ZIP-OVERWRITE-PROMPT---";
       const s = stdout || "";
@@ -399,9 +539,24 @@
       const form = card.querySelector(".run-form");
       const status = card.querySelector(".status");
       const output = card.querySelector(".output");
+      const actionsEl = card.querySelector(".output-actions");
+      const openReportBtn = card.querySelector(".open-report-window");
+      const expandReportBtn = card.querySelector(".expand-report-here");
       const cmdEl = card.querySelector(".cmd");
       const outEl = card.querySelector(".stdout");
       const errEl = card.querySelector(".stderr");
+      const cardTitle =
+        card.querySelector(".card-head h3")?.textContent?.trim() || "Script report";
+      const outputCtx = {
+        output,
+        cmdEl,
+        outEl,
+        errEl,
+        actionsEl,
+        expandBtn: expandReportBtn,
+        cardTitle,
+        lastReport: null,
+      };
       const submitRunBtn = form.querySelector('button.run[type="submit"]');
       const runActionButtons = [...form.querySelectorAll("button.run-action")];
       const primaryRunButtons = () =>
@@ -435,6 +590,21 @@
 
       function setZipOverwritePromptVisible(show) {
         if (zipOwWrap) zipOwWrap.hidden = !show;
+      }
+
+      if (openReportBtn) {
+        openReportBtn.addEventListener("click", () => {
+          if (!outputCtx.lastReport) return;
+          openLauncherReportWindow(outputCtx.lastReport);
+        });
+      }
+      if (expandReportBtn) {
+        expandReportBtn.addEventListener("click", () => {
+          const expanded = output.classList.toggle("output-expanded");
+          expandReportBtn.textContent = expanded
+            ? "Collapse report here"
+            : "Expand report here";
+        });
       }
 
       // Auto-fill the "title" field from the picked file's basename, if a
@@ -570,6 +740,10 @@
         clickedBtn.textContent = "Running…";
         status.textContent = "";
         output.hidden = true;
+        if (actionsEl) actionsEl.hidden = true;
+        output.classList.remove("output-expanded");
+        if (expandReportBtn) expandReportBtn.textContent = "Expand report here";
+        outputCtx.lastReport = null;
         setProceedVisible(false);
         setDuplicatePromptVisible(false);
         setZipOverwritePromptVisible(false);
@@ -613,10 +787,7 @@
         try {
           const res = await fetch(url, fetchInit);
           const data = await res.json();
-          output.hidden = false;
-          cmdEl.textContent = data.command || "";
-          outEl.textContent = data.stdout || "";
-          errEl.textContent = data.stderr || data.error || "";
+          applyRunOutputToCard(outputCtx, data);
           if (data.background) {
             status.textContent = "Started in background.";
             status.className = "status ok";
@@ -707,10 +878,7 @@
               body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
             });
             const data = await res.json();
-            output.hidden = false;
-            cmdEl.textContent = data.command || "";
-            outEl.textContent = data.stdout || "";
-            errEl.textContent = data.stderr || data.error || "";
+            applyRunOutputToCard(outputCtx, data);
             setDuplicatePromptVisible(false);
             if (data.background) {
               status.textContent = "Started in background.";
@@ -749,10 +917,7 @@
               body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
             });
             const data = await res.json();
-            output.hidden = false;
-            cmdEl.textContent = data.command || "";
-            outEl.textContent = data.stdout || "";
-            errEl.textContent = data.stderr || data.error || "";
+            applyRunOutputToCard(outputCtx, data);
             setZipOverwritePromptVisible(false);
             if (data.background) {
               status.textContent = "Started in background.";
@@ -818,10 +983,7 @@
               body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
             });
             const data = await res.json();
-            output.hidden = false;
-            cmdEl.textContent = data.command || "";
-            outEl.textContent = data.stdout || "";
-            errEl.textContent = data.stderr || data.error || "";
+            applyRunOutputToCard(outputCtx, data);
             setProceedVisible(false);
             if (data.background) {
               status.textContent = "Convert started in background.";

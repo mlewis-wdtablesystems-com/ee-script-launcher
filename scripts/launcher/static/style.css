@@ -519,6 +519,33 @@ button.run:disabled { opacity: 0.6; cursor: progress; }
   gap: 6px;
 }
 
+.output-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.output-actions button {
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.output-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.output.output-expanded .stdout,
+.output.output-expanded .stderr {
+  max-height: none;
+}
+
 .cmd {
   font-family: var(--mono);
   font-size: 11px;
