@@ -347,14 +347,15 @@ function Invoke-FabricationFolderChecks {
     $null = $errors.Add("ERROR: Gerber folder must contain at least 8 files (found $($gerberFiles.Count)).")
   }
 
-  # 3. NC Drill must contain at least 3 files
+  # 3. NC Drill must contain at least 2 files (simple boards may only have report + drill pair)
   $ncDrillDir = Join-Path $ProdDocDir 'NC Drill'
   $ncDrillFiles = @()
   if (Test-Path -LiteralPath $ncDrillDir -PathType Container) {
     $ncDrillFiles = @(Get-ChildItem -LiteralPath $ncDrillDir -File -ErrorAction SilentlyContinue)
   }
-  if ($ncDrillFiles.Count -lt 3) {
-    $null = $errors.Add("ERROR: NC Drill folder must contain at least 3 files (found $($ncDrillFiles.Count)).")
+  if ($ncDrillFiles.Count -lt 2) {
+    $listed = if ($ncDrillFiles.Count -eq 0) { '(none)' } else { ($ncDrillFiles | Sort-Object Name | ForEach-Object { $_.Name }) -join ', ' }
+    $null = $errors.Add("ERROR: NC Drill folder must contain at least 2 files (found $($ncDrillFiles.Count): $listed).")
   }
 
   # 4. Gerber duplicate-extension warnings
@@ -829,7 +830,8 @@ if ($Open -eq 'GerberZip') {
     -TimestampSpreadMinutes $TimestampSpreadMinutes -CheckResult $checkResult `
     -ReportTitle 'Gerber folder check'
   if ($checkResult.Errors.Count -gt 0) {
-    throw "Gerber zip aborted: $($checkResult.Errors.Count) check(s) failed."
+    $detail = ($checkResult.Errors | ForEach-Object { $_ }) -join ' '
+    throw "Gerber zip aborted: $($checkResult.Errors.Count) check(s) failed. $detail"
   }
 
   Write-Host ''
@@ -882,7 +884,8 @@ $checkResult = Invoke-FabricationFolderChecks -ProdDocDir $prodDocDir `
 Show-FabricationFolderCheckReport -ProdDocDir $prodDocDir -RevLetter $revLetter `
   -TimestampSpreadMinutes $TimestampSpreadMinutes -CheckResult $checkResult
 if ($checkResult.Errors.Count -gt 0) {
-  throw "Fabrication zip aborted: $($checkResult.Errors.Count) check(s) failed."
+  $detail = ($checkResult.Errors | ForEach-Object { $_ }) -join ' '
+  throw "Fabrication zip aborted: $($checkResult.Errors.Count) check(s) failed. $detail"
 }
 
 Write-Host ''
