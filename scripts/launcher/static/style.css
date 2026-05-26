@@ -541,11 +541,26 @@ button.run:disabled { opacity: 0.6; cursor: progress; }
   color: var(--accent);
 }
 
-/* Report output is full height by default; collapse via .output-collapsed on the panel */
-.output.output-collapsed .stdout,
-.output.output-collapsed .stderr {
+.output-actions button[hidden] {
+  display: none;
+}
+
+.report-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+/* Collapsed: one scroll region for command + stdout + stderr (flex min-height fix) */
+.output.output-collapsed .report-panel {
   max-height: 360px;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  background: var(--surface-2);
 }
 
 .cmd {

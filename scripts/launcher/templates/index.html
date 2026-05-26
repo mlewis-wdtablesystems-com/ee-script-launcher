@@ -156,18 +156,20 @@
                     <button type="button" class="open-report-window">Open full report in new window</button>
                     <button type="button" class="expand-report-here">Collapse report here</button>
                   </div>
-                  <div class="cmd"></div>
-                  <pre class="stdout"></pre>
-                  {% if fn.proceed_after_fail %}
-                  <div class="proceed-after-fail" hidden>
-                    <button
-                      type="button"
-                      class="run"
-                      data-proceed-target="{{ fn.proceed_after_fail.target_id }}"
-                    >{{ fn.proceed_after_fail.label }}</button>
+                  <div class="report-panel">
+                    <div class="cmd"></div>
+                    <pre class="stdout"></pre>
+                    {% if fn.proceed_after_fail %}
+                    <div class="proceed-after-fail" hidden>
+                      <button
+                        type="button"
+                        class="run"
+                        data-proceed-target="{{ fn.proceed_after_fail.target_id }}"
+                      >{{ fn.proceed_after_fail.label }}</button>
+                    </div>
+                    {% endif %}
+                    <pre class="stderr"></pre>
                   </div>
-                  {% endif %}
-                  <pre class="stderr"></pre>
                 </div>
               </article>
             {% endfor %}
@@ -487,23 +489,24 @@
     }
 
     function applyRunOutputToCard(ctx, data) {
-      const { output, cmdEl, outEl, errEl, actionsEl } = ctx;
+      const { output, cmdEl, outEl, errEl, actionsEl, openReportBtn } = ctx;
       output.hidden = false;
       cmdEl.textContent = data.command || "";
       outEl.textContent = data.stdout || "";
       errEl.textContent = data.stderr || data.error || "";
       const stderrText = data.stderr || data.error || "";
-      const showActions = shouldOfferReportActions(data.stdout, stderrText);
-      if (actionsEl) actionsEl.hidden = !showActions;
       const hasContent = Boolean(
         String(data.stdout || "").trim() || String(stderrText).trim()
       );
+      const showLongReportTools = shouldOfferReportActions(data.stdout, stderrText);
+      if (actionsEl) actionsEl.hidden = !hasContent;
+      if (openReportBtn) openReportBtn.hidden = !showLongReportTools;
       if (hasContent) {
         output.classList.remove("output-collapsed");
-        if (ctx.expandBtn) ctx.expandBtn.textContent = "Collapse report here";
-      } else if (!showActions) {
-        output.classList.remove("output-collapsed");
-        if (ctx.expandBtn) ctx.expandBtn.textContent = "Collapse report here";
+        if (ctx.expandBtn) {
+          ctx.expandBtn.textContent = "Collapse report here";
+          ctx.expandBtn.setAttribute("aria-expanded", "true");
+        }
       }
       let statusLabel = "";
       if (!data.background && data.exit_code != null) {
@@ -559,6 +562,7 @@
         outEl,
         errEl,
         actionsEl,
+        openReportBtn,
         expandBtn: expandReportBtn,
         cardTitle,
         lastReport: null,
@@ -605,11 +609,14 @@
         });
       }
       if (expandReportBtn) {
-        expandReportBtn.addEventListener("click", () => {
+        expandReportBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
           const collapsed = output.classList.toggle("output-collapsed");
           expandReportBtn.textContent = collapsed
             ? "Expand report here"
             : "Collapse report here";
+          expandReportBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
         });
       }
 
