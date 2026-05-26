@@ -23,6 +23,12 @@ foreach ($x in @(
     '098-10-516'
     # Toroid Transformer (P&P) vs COMMOM MODE CHOKE vertical (Arena) — e.g. 266-10-008 T1
     '031-10-060'
+    # 3.3 uH inductor: P&P column shows literal "Description" vs Arena full text — e.g. 190-15-001 L8
+    '098-10-584'
+    # 2.2 uF cap: Arena 25V wording vs P&P 6.3V — e.g. 190-15-001 C112
+    '098-13-168'
+    # Terminal block: P&P "Connector" vs Arena full header description — e.g. 190-15-001 J1/J2
+    '098-10-508'
   )) {
   [void]$script:BomArenaAltiumDescriptionBypassPartNumbers.Add($x)
 }
