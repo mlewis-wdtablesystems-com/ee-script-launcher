@@ -15,7 +15,9 @@
   with field values derived from -NewPartNumber. The format is resolved from GET /items (if present), else
   GET /settings/items/categories/{categoryGuid} (walking parent categories when the format is inherited), then
   GET /settings/items/numberformats/{guid}. When those omit a format (common for PCBA categories), the script infers
-  the format by matching the source part number against all workspace number formats (VALUE_LIST codes + segment shape).
+  the format by matching both the source and new part numbers against workspace number formats (VALUE_LIST codes,
+  segment shape, or a single FREE_TEXT field such as Basic Item Number). When several formats match the source number,
+  the new number must also validate (e.g. WDTS P/N project codes); prefer the most specific matching format.
   The items list response may include numberFormat when the full item GET does
   not. Delimiter fields from the
   format definition are omitted on create; other fields map to hyphen-separated segments of the source and new numbers
@@ -194,18 +196,19 @@ function Format-NumberFieldValueLikeSource([string]$OldFieldValue, [string]$NewS
 }
 
 function Get-ArenaNumberFormatValueFields {
-  param([object[]]$FieldDefs)
+  param([object]$FieldDefs)
   $out = @()
   foreach ($fd in @($FieldDefs)) {
+    if (-not $fd) { continue }
     $t = ("$($fd.type)").Trim().ToUpperInvariant()
     if ($t -eq 'DELIMITER') { continue }
     $out += $fd
   }
-  return $out
+  return @($out)
 }
 
 function Get-ArenaNumberFormatPrimaryDelimiter {
-  param([object[]]$FieldDefs)
+  param([object]$FieldDefs)
   foreach ($fd in @($FieldDefs)) {
     $t = ("$($fd.type)").Trim().ToUpperInvariant()
     if ($t -ne 'DELIMITER') { continue }
@@ -218,18 +221,23 @@ function Get-ArenaNumberFormatPrimaryDelimiter {
 function Test-PartNumberMatchesArenaNumberFormatFields {
   param(
     [Parameter(Mandatory)][string]$PartNumber,
-    [Parameter(Mandatory)][object[]]$FieldDefs
+    [Parameter(Mandatory)][object]$FieldDefs
   )
   $pn = $PartNumber.Trim()
   if (-not $pn) { return $false }
   $valFields = Get-ArenaNumberFormatValueFields -FieldDefs $FieldDefs
-  if ($valFields.Count -eq 0) { return $false }
+  if (@($valFields).Count -eq 0) { return $false }
+
+  if (@($valFields).Count -eq 1) {
+    $t = ("$($valFields[0].type)").Trim().ToUpperInvariant()
+    if ($t -eq 'FREE_TEXT') { return $true }
+  }
 
   $delim = Get-ArenaNumberFormatPrimaryDelimiter -FieldDefs $FieldDefs
   $segs = @($pn -split [regex]::Escape($delim))
-  if ($segs.Count -ne $valFields.Count) { return $false }
+  if ($segs.Count -ne @($valFields).Count) { return $false }
 
-  for ($i = 0; $i -lt $valFields.Count; $i++) {
+  for ($i = 0; $i -lt @($valFields).Count; $i++) {
     $fd = $valFields[$i]
     $seg = $segs[$i]
     $t = ("$($fd.type)").Trim().ToUpperInvariant()
@@ -246,18 +254,55 @@ function Test-PartNumberMatchesArenaNumberFormatFields {
   return $true
 }
 
+function Get-ArenaNumberFormatMatchSpecificityScore {
+  param(
+    [Parameter(Mandatory)][string]$PartNumber,
+    [Parameter(Mandatory)][object]$FieldDefs
+  )
+  $valFields = Get-ArenaNumberFormatValueFields -FieldDefs $FieldDefs
+  if (@($valFields).Count -eq 0) { return 0 }
+  if (@($valFields).Count -eq 1) {
+    $t = ("$($valFields[0].type)").Trim().ToUpperInvariant()
+    if ($t -eq 'FREE_TEXT') { return 1 }
+  }
+
+  $delim = Get-ArenaNumberFormatPrimaryDelimiter -FieldDefs $FieldDefs
+  $segs = @($PartNumber.Trim() -split [regex]::Escape($delim))
+  if ($segs.Count -ne @($valFields).Count) { return 0 }
+
+  $score = @($valFields).Count
+  for ($i = 0; $i -lt @($valFields).Count; $i++) {
+    $fd = $valFields[$i]
+    $t = ("$($fd.type)").Trim().ToUpperInvariant()
+    if ($t -eq 'VALUE_LIST') {
+      $pvs = @($fd.possibleValues)
+      if ($pvs.Count -eq 0) { continue }
+      foreach ($pv in $pvs) {
+        if ("$($pv.value)" -eq $segs[$i]) {
+          $score += 10
+          break
+        }
+      }
+    }
+  }
+  return $score
+}
+
 function Resolve-ArenaNumberFormatDefinitionFromPartNumber {
   <#
-  When category/item responses omit numberFormat, infer it by matching the existing part number against each
-  workspace format from GET /settings/items/numberformats (VALUE_LIST segment codes + segment count).
+  When category/item responses omit numberFormat, infer it by matching part numbers against each workspace format.
+  Both the source number and (when provided) the new number must validate — e.g. a new project code not in a
+  VALUE_LIST rules out that structured format and leaves Basic Item Number (single FREE_TEXT field).
   #>
   param(
     [Parameter(Mandatory)][string]$PartNumber,
+    [string]$NewPartNumber = '',
     [Parameter(Mandatory)][hashtable]$Headers,
     [Parameter(Mandatory)][string]$ApiRoot
   )
   $pn = $PartNumber.Trim()
   if (-not $pn) { return $null }
+  $newPn = $NewPartNumber.Trim()
 
   $list = $null
   try {
@@ -281,20 +326,36 @@ function Resolve-ArenaNumberFormatDefinitionFromPartNumber {
     $fields = @($full.fields)
     if ($fields.Count -eq 0) { continue }
     if (-not (Test-PartNumberMatchesArenaNumberFormatFields -PartNumber $pn -FieldDefs $fields)) { continue }
+    if ($newPn -and -not (Test-PartNumberMatchesArenaNumberFormatFields -PartNumber $newPn -FieldDefs $fields)) {
+      continue
+    }
     $resolvedGuid = if ("$($full.guid)".Trim()) { "$($full.guid)".Trim() } else { $g }
     $name = if ("$($full.name)".Trim()) { "$($full.name)".Trim() } elseif ("$($row.name)".Trim()) { "$($row.name)".Trim() } else { $resolvedGuid }
-    $matches += ,([ordered]@{ guid = $resolvedGuid; fields = $fields; name = $name })
+    $score = Get-ArenaNumberFormatMatchSpecificityScore -PartNumber $pn -FieldDefs $fields
+    $matches += ,([ordered]@{
+        guid   = $resolvedGuid
+        fields = $fields
+        name   = $name
+        score  = $score
+      })
   }
 
   if ($matches.Count -eq 0) { return $null }
-  if ($matches.Count -gt 1) {
-    $names = ($matches | ForEach-Object { $_.name }) -join ', '
+  if ($matches.Count -eq 1) {
+    $m = $matches[0]
+    return [ordered]@{ guid = $m.guid; fields = $m.fields }
+  }
+
+  $bestScore = ($matches | ForEach-Object { [int]$_.score } | Measure-Object -Maximum).Maximum
+  $best = @($matches | Where-Object { [int]$_.score -eq $bestScore })
+  if ($best.Count -gt 1) {
+    $names = ($best | ForEach-Object { $_.name }) -join ', '
     throw (
-      "Part number '$pn' matches more than one Arena number format ($names). " +
-      "Assign a number format on the item category in Arena settings, or duplicate from an item whose format is unambiguous."
+      "Part number '$pn' matches more than one Arena number format ($names) for this duplicate. " +
+      "Assign a number format on the item category in Arena settings, or adjust -NewPartNumber."
     )
   }
-  $m = $matches[0]
+  $m = $best[0]
   return [ordered]@{ guid = $m.guid; fields = $m.fields }
 }
 
@@ -308,7 +369,8 @@ function Get-ArenaItemNumberFormatDefinition {
   param(
     [Parameter(Mandatory)][object]$SourceItem,
     [Parameter(Mandatory)][hashtable]$Headers,
-    [Parameter(Mandatory)][string]$ApiRoot
+    [Parameter(Mandatory)][string]$ApiRoot,
+    [string]$NewPartNumber = ''
   )
   $nfGuid = $null
   $embeddedFields = $null
@@ -352,7 +414,7 @@ function Get-ArenaItemNumberFormatDefinition {
   $partNumber = ("$($SourceItem.number)").Trim()
 
   if (-not $nfGuid) {
-    return Resolve-ArenaNumberFormatDefinitionFromPartNumber -PartNumber $partNumber -Headers $Headers -ApiRoot $ApiRoot
+    return Resolve-ArenaNumberFormatDefinitionFromPartNumber -PartNumber $partNumber -NewPartNumber $NewPartNumber -Headers $Headers -ApiRoot $ApiRoot
   }
 
   $full = $null
@@ -389,7 +451,7 @@ function Get-ArenaItemNumberFormatDefinition {
     return [ordered]@{ guid = $resolvedGuid; fields = $embeddedFields }
   }
 
-  return Resolve-ArenaNumberFormatDefinitionFromPartNumber -PartNumber $partNumber -Headers $Headers -ApiRoot $ApiRoot
+  return Resolve-ArenaNumberFormatDefinitionFromPartNumber -PartNumber $partNumber -NewPartNumber $NewPartNumber -Headers $Headers -ApiRoot $ApiRoot
 }
 
 function Build-NumberFormatForCreateFromSourceItem {
@@ -416,11 +478,21 @@ function Build-NumberFormatForCreateFromSourceItem {
     )
   }
 
-  $defs = Get-ArenaItemNumberFormatDefinition -SourceItem $SourceItem -Headers $Headers -ApiRoot $ApiRoot
+  $defs = Get-ArenaItemNumberFormatDefinition -SourceItem $SourceItem -Headers $Headers -ApiRoot $ApiRoot -NewPartNumber $newPn
   if (-not $defs -or -not $defs.guid) { return $null }
   $nfGuid = "$($defs.guid)".Trim()
   $fieldDefs = @($defs.fields)
   if ($fieldDefs.Count -eq 0) { return $null }
+
+  $valFieldsOnly = Get-ArenaNumberFormatValueFields -FieldDefs $fieldDefs
+  if (@($valFieldsOnly).Count -eq 1) {
+    $t0 = ("$($valFieldsOnly[0].type)").Trim().ToUpperInvariant()
+    if ($t0 -eq 'FREE_TEXT') {
+      $gf = "$($valFieldsOnly[0].guid)".Trim()
+      if (-not $gf) { return $null }
+      return [ordered]@{ guid = $nfGuid; fields = @(@{ guid = $gf; value = $newPn }) }
+    }
+  }
 
   $hasTypes = $false
   foreach ($fd in $fieldDefs) {
