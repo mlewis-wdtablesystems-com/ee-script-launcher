@@ -13,7 +13,9 @@
   top-level number, procurementType, or isAssembly on create (Arena 3031); in that case this script sends numberFormat
   with field values derived from -NewPartNumber. The format is resolved from GET /items (if present), else
   GET /settings/items/categories/{categoryGuid} (walking parent categories when the format is inherited), then
-  GET /settings/items/numberformats/{guid}. The items list response may include numberFormat when the full item GET does
+  GET /settings/items/numberformats/{guid}. When those omit a format (common for PCBA categories), the script infers
+  the format by matching the source part number against all workspace number formats (VALUE_LIST codes + segment shape).
+  The items list response may include numberFormat when the full item GET does
   not. Delimiter fields from the
   format definition are omitted on create; other fields map to hyphen-separated segments of the source and new numbers
   (optional zero-padding for numeric segments). Single-field formats use the full new part number.
@@ -190,6 +192,111 @@ function Format-NumberFieldValueLikeSource([string]$OldFieldValue, [string]$NewS
   return $n
 }
 
+function Get-ArenaNumberFormatValueFields {
+  param([object[]]$FieldDefs)
+  $out = @()
+  foreach ($fd in @($FieldDefs)) {
+    $t = ("$($fd.type)").Trim().ToUpperInvariant()
+    if ($t -eq 'DELIMITER') { continue }
+    $out += $fd
+  }
+  return $out
+}
+
+function Get-ArenaNumberFormatPrimaryDelimiter {
+  param([object[]]$FieldDefs)
+  foreach ($fd in @($FieldDefs)) {
+    $t = ("$($fd.type)").Trim().ToUpperInvariant()
+    if ($t -ne 'DELIMITER') { continue }
+    $d = ("$($fd.value)").Trim()
+    if ($d) { return $d }
+  }
+  return '-'
+}
+
+function Test-PartNumberMatchesArenaNumberFormatFields {
+  param(
+    [Parameter(Mandatory)][string]$PartNumber,
+    [Parameter(Mandatory)][object[]]$FieldDefs
+  )
+  $pn = $PartNumber.Trim()
+  if (-not $pn) { return $false }
+  $valFields = Get-ArenaNumberFormatValueFields -FieldDefs $FieldDefs
+  if ($valFields.Count -eq 0) { return $false }
+
+  $delim = Get-ArenaNumberFormatPrimaryDelimiter -FieldDefs $FieldDefs
+  $segs = @($pn -split [regex]::Escape($delim))
+  if ($segs.Count -ne $valFields.Count) { return $false }
+
+  for ($i = 0; $i -lt $valFields.Count; $i++) {
+    $fd = $valFields[$i]
+    $seg = $segs[$i]
+    $t = ("$($fd.type)").Trim().ToUpperInvariant()
+    if ($t -eq 'VALUE_LIST') {
+      $pvs = @($fd.possibleValues)
+      if ($pvs.Count -eq 0) { continue }
+      $hit = $false
+      foreach ($pv in $pvs) {
+        if ("$($pv.value)" -eq $seg) { $hit = $true; break }
+      }
+      if (-not $hit) { return $false }
+    }
+  }
+  return $true
+}
+
+function Resolve-ArenaNumberFormatDefinitionFromPartNumber {
+  <#
+  When category/item responses omit numberFormat, infer it by matching the existing part number against each
+  workspace format from GET /settings/items/numberformats (VALUE_LIST segment codes + segment count).
+  #>
+  param(
+    [Parameter(Mandatory)][string]$PartNumber,
+    [Parameter(Mandatory)][hashtable]$Headers,
+    [Parameter(Mandatory)][string]$ApiRoot
+  )
+  $pn = $PartNumber.Trim()
+  if (-not $pn) { return $null }
+
+  $list = $null
+  try {
+    $list = Invoke-ArenaJson -Uri "$ApiRoot/settings/items/numberformats" -Headers $Headers
+  } catch {
+    return $null
+  }
+  if (-not $list -or -not $list.results -or @($list.results).Count -eq 0) { return $null }
+
+  $matches = @()
+  foreach ($row in @($list.results)) {
+    $g = "$($row.guid)".Trim()
+    if (-not $g) { continue }
+    $full = $null
+    try {
+      $full = Invoke-ArenaJson -Uri "$ApiRoot/settings/items/numberformats/$g" -Headers $Headers
+    } catch {
+      continue
+    }
+    if (-not $full -or ($full.errors -and @($full.errors).Count -gt 0)) { continue }
+    $fields = @($full.fields)
+    if ($fields.Count -eq 0) { continue }
+    if (-not (Test-PartNumberMatchesArenaNumberFormatFields -PartNumber $pn -FieldDefs $fields)) { continue }
+    $resolvedGuid = if ("$($full.guid)".Trim()) { "$($full.guid)".Trim() } else { $g }
+    $name = if ("$($full.name)".Trim()) { "$($full.name)".Trim() } elseif ("$($row.name)".Trim()) { "$($row.name)".Trim() } else { $resolvedGuid }
+    $matches += ,([ordered]@{ guid = $resolvedGuid; fields = $fields; name = $name })
+  }
+
+  if ($matches.Count -eq 0) { return $null }
+  if ($matches.Count -gt 1) {
+    $names = ($matches | ForEach-Object { $_.name }) -join ', '
+    throw (
+      "Part number '$pn' matches more than one Arena number format ($names). " +
+      "Assign a number format on the item category in Arena settings, or duplicate from an item whose format is unambiguous."
+    )
+  }
+  $m = $matches[0]
+  return [ordered]@{ guid = $m.guid; fields = $m.fields }
+}
+
 function Get-ArenaItemNumberFormatDefinition {
   <#
   Returns number format definition (guid + ordered fields, usually with type) for POST /items.
@@ -241,7 +348,11 @@ function Get-ArenaItemNumberFormatDefinition {
     }
   }
 
-  if (-not $nfGuid) { return $null }
+  $partNumber = ("$($SourceItem.number)").Trim()
+
+  if (-not $nfGuid) {
+    return Resolve-ArenaNumberFormatDefinitionFromPartNumber -PartNumber $partNumber -Headers $Headers -ApiRoot $ApiRoot
+  }
 
   $full = $null
   try {
@@ -277,7 +388,7 @@ function Get-ArenaItemNumberFormatDefinition {
     return [ordered]@{ guid = $resolvedGuid; fields = $embeddedFields }
   }
 
-  return $null
+  return Resolve-ArenaNumberFormatDefinitionFromPartNumber -PartNumber $partNumber -Headers $Headers -ApiRoot $ApiRoot
 }
 
 function Build-NumberFormatForCreateFromSourceItem {
@@ -468,7 +579,8 @@ if (-not $numberFormatBody) {
   throw (
     "This workspace does not allow setting item 'number' directly on create (Arena 3031). " +
     "Could not resolve a number format: no usable numberFormat on GET /items or the items lookup, " +
-    "and no field list from GET /settings/items/categories (including parent categories) or GET /settings/items/numberformats. " +
+    "no field list from GET /settings/items/categories (including parent categories) or GET /settings/items/numberformats, " +
+    "and the source part number did not uniquely match any workspace number format. " +
     "Category guid: $($src.category.guid). Confirm this category (or an ancestor) has an item number format in Arena settings."
   )
 }
