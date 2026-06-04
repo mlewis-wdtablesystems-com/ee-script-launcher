@@ -9,7 +9,8 @@
 
   Execute mode (default): creates a new item (POST /items) with edited name/description,
   owner set to the Windows session display name (or -OwnerFullName), and revision number from -NewItemRevision.
-  Category, UOM, and additional attributes are derived from the source item. Many workspaces do not allow setting
+  If Item description is left blank, the source item description is used; if that is also empty, the item name is
+  used (Arena rejects an empty description on create). Category, UOM, and additional attributes are derived from the source item. Many workspaces do not allow setting
   top-level number, procurementType, or isAssembly on create (Arena 3031); in that case this script sends numberFormat
   with field values derived from -NewPartNumber. The format is resolved from GET /items (if present), else
   GET /settings/items/categories/{categoryGuid} (walking parent categories when the format is inherited), then
@@ -585,10 +586,24 @@ if (-not $numberFormatBody) {
   )
 }
 
+$createDescription = $ItemDescription.Trim()
+if (-not $createDescription) {
+  $createDescription = $srcDesc
+}
+if (-not $createDescription) {
+  $createDescription = $ItemName.Trim()
+  if ($createDescription) {
+    Write-Warning 'Item description was blank and the source item has no description; using item name for Arena create (description is required).'
+  }
+}
+if (-not $createDescription) {
+  throw 'Arena requires a non-empty item description. Enter text in Item description or use Load name & description from Arena.'
+}
+
 $create = [ordered]@{
   category       = @{ guid = "$($src.category.guid)" }
   name           = $ItemName.Trim()
-  description    = $ItemDescription.Trim()
+  description    = $createDescription
   revisionNumber = $(if ($NewItemRevision.Trim()) { $NewItemRevision.Trim() } else { 'A' })
   owner          = @{ fullName = $OwnerFullName.Trim() }
   uom            = (Normalize-ArenaItemUom $(if ($src.uom) { "$($src.uom)" } else { 'Each' }))
