@@ -222,6 +222,20 @@ function Find-PickPlaceHeaderLineIndex {
   return -1
 }
 
+function Get-PickPlaceLinesBeforeHeader {
+  param(
+    [string[]]$Lines,
+    [int]$HeaderIdx
+  )
+  if ($HeaderIdx -le 0) { return @() }
+  $preamble = @($Lines[0..($HeaderIdx - 1)])
+  # Altium Pick Place exports: line 2 is the source file path — omit it.
+  if ($preamble.Count -ge 2) {
+    $preamble = @($preamble[0]) + @($preamble[2..($preamble.Count - 1)])
+  }
+  return $preamble
+}
+
 function ConvertFrom-PickPlaceCsvRows {
   param(
     [string]$HeaderLine,
@@ -411,7 +425,7 @@ function Update-PickPlaceTextFile {
       }
     }
     $newLines = @()
-    if ($headerIdx -gt 0) { $newLines += $lines[0..($headerIdx - 1)] }
+    $newLines += Get-PickPlaceLinesBeforeHeader -Lines $lines -HeaderIdx $headerIdx
     $newLines += $headerLine
     $newLines += $outData
     $bak = Backup-PickPlaceFileBeforeUpdate -SourcePath $Path -ArchiveDir $ArchiveDir
@@ -455,7 +469,7 @@ function Update-PickPlaceTextFile {
     $outTxt.Add((Format-TxtPickPlaceRow -Row $row -Layout $layout -LineLength $sampleLen))
   }
   $newLines = @()
-  if ($headerIdx -gt 0) { $newLines += $lines[0..($headerIdx - 1)] }
+  $newLines += Get-PickPlaceLinesBeforeHeader -Lines $lines -HeaderIdx $headerIdx
   $newLines += $headerLine
   $newLines += $outTxt
   $bak = Backup-PickPlaceFileBeforeUpdate -SourcePath $Path -ArchiveDir $ArchiveDir

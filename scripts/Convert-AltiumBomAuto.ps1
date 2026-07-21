@@ -11,12 +11,12 @@
        as fallbacks) for the most recently modified .xlsx / .xls file.
     3. Opens that file in Excel COM, saves sheet 1 as CSV beside the xlsx,
        and runs the same post-processing as Convert_BOM_to_CSV.ps1:
-         - validate column C on sheet 1 is fully populated (trailing rows that
-           are completely empty across the used range are ignored)
+         - validate column C on sheet 1 is fully populated (trailing empty rows
+           and MH#/TP#-only designator rows are ignored)
          - validate line 2 contains "-15-" or "-10-" (PCBA)
          - validate line 3 contains "-25-" or "-20-" (PCB)
          - drop line 4 if it contains "Designator"
-         - drop any lines containing "MH1" or "TP"
+         - drop BOM lines whose designators are only MH# / TP# (mounting holes, test points)
          - drop blank lines and rows that are only commas / quotes / whitespace
            (so trailing Excel empties are not written to the saved CSV)
 
@@ -109,6 +109,77 @@ Write-Host ""
 Write-Host "=== Converting to CSV ==="
 Write-Host ("  Output CSV    : {0}" -f $csvPath)
 
+function Split-BomCsvDesignatorTokens {
+  param([string]$Text)
+  if ([string]::IsNullOrWhiteSpace($Text)) { return @() }
+  return @(($Text -split '[,;]') | ForEach-Object { $_.Trim().Trim('"') } | Where-Object { $_ })
+}
+
+function Test-DesignatorsAreOnlyMhOrTp {
+  param([string[]]$Tokens)
+  if ($Tokens.Count -eq 0) { return $false }
+  foreach ($t in $Tokens) {
+    if ($t -notmatch '^(?i)MH\d+$' -and $t -notmatch '^(?i)TP\d+$') {
+      return $false
+    }
+  }
+  return $true
+}
+
+function Find-BomSheetHeaderRow {
+  param(
+    [Parameter(Mandatory)][object]$Sheet,
+    [int]$StartRow,
+    [int]$LastRow,
+    [int]$StartCol,
+    [int]$EndCol
+  )
+  $scanTo = [Math]::Min($LastRow, $StartRow + 29)
+  for ([int]$r = $StartRow; $r -le $scanTo; $r++) {
+    $hasQty = $false
+    $hasDes = $false
+    for ([int]$c = $StartCol; $c -le $EndCol; $c++) {
+      $v = ("" + $Sheet.Cells.Item($r, $c).Value2).Trim()
+      if ($v -imatch '^(quantity|qty)$') { $hasQty = $true }
+      if ($v -match '(?i)designator') { $hasDes = $true }
+    }
+    if ($hasQty -and $hasDes) { return $r }
+  }
+  for ([int]$r = $StartRow; $r -le $scanTo; $r++) {
+    for ([int]$c = $StartCol; $c -le $EndCol; $c++) {
+      $v = ("" + $Sheet.Cells.Item($r, $c).Value2).Trim()
+      if ($v -match '(?i)designator') { return $r }
+    }
+  }
+  return -1
+}
+
+function Get-BomSheetDesignatorColumn {
+  param(
+    [Parameter(Mandatory)][object]$Sheet,
+    [int]$HeaderRow,
+    [int]$StartCol,
+    [int]$EndCol
+  )
+  for ([int]$c = $StartCol; $c -le $EndCol; $c++) {
+    $h = ("" + $Sheet.Cells.Item($HeaderRow, $c).Value2).Trim()
+    if ($h -imatch 'designator') { return $c }
+  }
+  return -1
+}
+
+function Test-ExcelRowDesignatorsAreOnlyMhOrTp {
+  param(
+    [Parameter(Mandatory)][object]$Sheet,
+    [int]$Row,
+    [int]$DesignatorCol
+  )
+  if ($DesignatorCol -lt 1) { return $false }
+  $raw = $Sheet.Cells.Item($Row, $DesignatorCol).Value2
+  $text = if ($null -eq $raw) { '' } else { ("" + $raw).Trim() }
+  return Test-DesignatorsAreOnlyMhOrTp -Tokens (Split-BomCsvDesignatorTokens -Text $text)
+}
+
 function Assert-FirstSheetColumnCComplete {
   param([Parameter(Mandatory)][object]$Sheet)
   [void]$Sheet.Activate()
@@ -143,12 +214,31 @@ function Assert-FirstSheetColumnCComplete {
     Write-Host ("  Note: ignoring trailing empty Excel rows {0}-{1}." -f ($effectiveLastRow + 1), $lastRowUsed)
   }
 
+  $headerRow = Find-BomSheetHeaderRow -Sheet $Sheet -StartRow $startRow -LastRow $effectiveLastRow `
+    -StartCol $startCol -EndCol $endCol
+  $designatorCol = -1
+  if ($headerRow -ge 0) {
+    $designatorCol = Get-BomSheetDesignatorColumn -Sheet $Sheet -HeaderRow $headerRow `
+      -StartCol $startCol -EndCol $endCol
+  }
+
+  $skippedMhTp = 0
   for ([int]$r = $startRow; $r -le $effectiveLastRow; $r++) {
+    if ($headerRow -ge 0) {
+      if ($r -eq $headerRow) { continue }
+      if ($r -gt $headerRow -and (Test-ExcelRowDesignatorsAreOnlyMhOrTp -Sheet $Sheet -Row $r -DesignatorCol $designatorCol)) {
+        $skippedMhTp++
+        continue
+      }
+    }
     $cell = $Sheet.Cells.Item($r, 3)
     $raw = $cell.Value2
     if ($null -eq $raw -or [string]::IsNullOrWhiteSpace(([string]$raw).Trim())) {
       throw "Column C contains an empty value on Excel row ${r}. Every row in column C within the BOM must be filled."
     }
+  }
+  if ($skippedMhTp -gt 0) {
+    Write-Host ("  Note: column C check skipped for {0} row(s) with only MH# / TP# designators." -f $skippedMhTp)
   }
 }
 
@@ -222,13 +312,56 @@ if ($lines.Count -ge 4 -and $lines[3] -match 'Designator') {
   }
 }
 
+function Find-BomCsvHeaderLineIndex {
+  param([string[]]$Lines)
+  for ($i = 0; $i -lt $Lines.Count; $i++) {
+    $l = $Lines[$i]
+    if ($l -match '(?i)Designator' -and $l -match '(?i)Quantity|Qty') { return $i }
+  }
+  for ($i = 0; $i -lt $Lines.Count; $i++) {
+    if ($Lines[$i] -match '(?i)Designator') { return $i }
+  }
+  return -1
+}
+
+function Get-BomCsvDesignatorFieldFromDataLine {
+  param(
+    [Parameter(Mandatory)][string]$HeaderLine,
+    [Parameter(Mandatory)][string]$DataLine
+  )
+  try {
+    $row = @($HeaderLine, $DataLine) | ConvertFrom-Csv | Select-Object -Last 1
+    if (-not $row) { return '' }
+    $col = @($row.PSObject.Properties.Name | Where-Object { $_ -imatch 'designator' } | Select-Object -First 1)
+    if (-not $col) { return '' }
+    return ("" + $row.$col).Trim()
+  } catch {
+    return ''
+  }
+}
+
+$headerIdx = Find-BomCsvHeaderLineIndex -Lines $lines
 $beforeCount = $lines.Count
-$lines = @($lines | Where-Object {
-  ($_.Trim() -notmatch '(?i)MH1') -and ($_.Trim() -notmatch '(?i)TP')
-})
+if ($headerIdx -ge 0) {
+  $headerLine = $lines[$headerIdx]
+  $kept = New-Object System.Collections.Generic.List[string]
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($i -le $headerIdx) {
+      [void]$kept.Add($lines[$i])
+      continue
+    }
+    $desField = Get-BomCsvDesignatorFieldFromDataLine -HeaderLine $headerLine -DataLine $lines[$i]
+    $tokens = Split-BomCsvDesignatorTokens -Text $desField
+    if (Test-DesignatorsAreOnlyMhOrTp -Tokens $tokens) { continue }
+    [void]$kept.Add($lines[$i])
+  }
+  $lines = @($kept)
+} else {
+  Write-Host '  WARNING: No Designator header row found; skipping MH#/TP# line filter.' -ForegroundColor Yellow
+}
 $dropped = $beforeCount - $lines.Count
 if ($dropped -gt 0) {
-  Write-Host ("  Dropped {0} lines matching MH1 / TP." -f $dropped)
+  Write-Host ("  Dropped {0} line(s) with only MH# / TP# designators." -f $dropped)
 }
 
 function Test-IsEffectivelyEmptyCsvLine {

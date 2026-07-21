@@ -17,6 +17,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $scriptsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+. (Join-Path $scriptsDir 'LauncherNestedScriptHelpers.ps1')
 $openScript = Join-Path $scriptsDir 'Open-AltiumPartFolder.ps1'
 if (-not (Test-Path -LiteralPath $openScript)) { throw "Required script missing: $openScript" }
 
@@ -34,11 +35,7 @@ $openArgs = @(
   '-Open', 'GerberZip'
 )
 if ($ForceZipOverwrite) { $openArgs += '-ForceZipOverwrite' }
-$gerberOut = & powershell.exe @openArgs 2>&1
-Write-Host (($gerberOut | ForEach-Object { "$_" }) -join "`n")
-if ($LASTEXITCODE -ne 0) {
-  exit $LASTEXITCODE
-}
+Invoke-NestedLauncherPowerShell -ArgumentList $openArgs -StepLabel 'Check and Build Gerber Zip' | Out-Null
 
 Write-Host ''
 Write-Host 'Done.' -ForegroundColor Green

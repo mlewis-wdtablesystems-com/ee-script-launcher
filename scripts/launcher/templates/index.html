@@ -3,162 +3,281 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Script launcher</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <title>Electronics Engineering Assistant</title>
+  <link rel="stylesheet" href="/static/style.css?v=10" />
 </head>
 <body>
-  <header class="topbar">
-    <h1>Script launcher</h1>
-    <div class="ws">
-      <label for="workspace">Arena workspace</label>
-      <select id="workspace" data-default="{{ default_workspace }}">
-        {% for w in workspaces %}
-          <option value="{{ w.id }}" data-workspace-id="{{ w.workspace_id }}">
-            {{ w.label }} ({{ w.workspace_id }})
-          </option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="env">
-      <span>Env:</span>
-      {% for k, ok in arena_status.items() %}
-        <span class="pill {{ 'ok' if ok else 'warn' }}" title="{{ k }}{{ '' if ok else ' is not set' }}">
-          {{ k }}{{ ' &check;' if ok else ' &times;' }}
-        </span>
-      {% endfor %}
-    </div>
-  </header>
+  <div class="app-shell">
+    <div class="app-chrome">
+      <header class="topbar">
+        <h1>Electronics Engineering Assistant</h1>
+        <div class="ws">
+          <label for="workspace">Arena workspace</label>
+          <select id="workspace" data-default="{{ default_workspace }}">
+            {% for w in workspaces %}
+              <option value="{{ w.id }}" data-workspace-id="{{ w.workspace_id }}">
+                {{ w.label }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="env">
+          <span>Env:</span>
+          {% for k, ok in arena_status.items() %}
+            <span class="pill {{ 'ok' if ok else 'warn' }}" title="{{ k }}{{ '' if ok else ' is not set' }}">
+              {{ k }}{{ ' &check;' if ok else ' &times;' }}
+            </span>
+          {% endfor %}
+        </div>
+      </header>
 
-  <div class="layout">
-    <main>
-      <nav class="tabs" id="group-tabs" role="tablist">
+      <div class="frozen-pane">
+        <label for="global-part-number">Part number</label>
+        <input
+          type="text"
+          id="global-part-number"
+          name="part_number"
+          placeholder="239-10-001"
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </div>
+    </div>
+
+    <div class="panels">
+    <section class="panel scripts-panel" aria-label="Scripts">
+      <header class="panel-head">
+        <h2>Scripts</h2>
+      </header>
+      <div class="panel-body">
         {% for group, fns in groups %}
-          <button type="button" class="tab" role="tab" data-group="{{ group }}">
-            {{ group }} <span class="tab-count">{{ fns|length }}</span>
-          </button>
-        {% endfor %}
-      </nav>
-
-      {% for group, fns in groups %}
-        <section class="group" data-group="{{ group }}">
-          <h2 class="group-heading">{{ group }}</h2>
-          <div class="cards">
-            {% for fn in fns %}
-              <article
-                class="card"
-                data-fn="{{ fn.id }}"
-                data-multipart="{{ '1' if fn.has_file_field else '0' }}"
-                data-discovery="{{ '1' if fn.has_discovery else '0' }}"
-                data-duplicate-prompt="{{ '1' if fn.duplicate_upload_prompt else '0' }}"
-                data-zip-overwrite-prompt="{{ '1' if fn.zip_overwrite_prompt else '0' }}"
-                data-discovery-prefill="{{ '1' if fn.discovery_prefill else '0' }}"
-              >
-                <header class="card-head">
-                  <h3>{% if fn.icon %}<span class="card-icon">{{ fn.icon }}</span> {% endif %}{{ fn.title }}</h3>
-                  <div class="head-pills">
-                    {% if fn.background %}<span class="pill bg">background</span>{% endif %}
-                    {% if fn.has_file_field %}<span class="pill bg">upload</span>{% endif %}
-                    {% if fn.has_discovery %}<span class="pill bg">discovery</span>{% endif %}
-                  </div>
-                </header>
-                <p class="desc">{{ fn.description }}</p>
-
-                <form class="run-form">
-                  {% for f in fn.fields %}
-                    {% if f.kind == 'checkbox' %}
-                    <label class="checkbox-row">
-                      <input
-                        type="checkbox"
-                        name="{{ f.name }}"
-                        value="1"
-                        {% if f.default %}checked{% endif %}
-                      />
-                      <span class="checkbox-label">{{ f.label }}</span>
-                    </label>
-                    {% else %}
-                    <label class="field">
-                      <span>{{ f.label }}{% if f.required %} <em>*</em>{% endif %}</span>
-                      {% if f.kind == 'select' %}
-                        <select name="{{ f.name }}">
-                          {% for o in f.options %}
-                            <option value="{{ o }}" {% if o == f.default %}selected{% endif %}>{{ o }}</option>
-                          {% endfor %}
-                        </select>
-                      {% elif f.kind == 'textarea' %}
-                        <textarea name="{{ f.name }}" rows="3" placeholder="{{ f.placeholder }}">{{ f.default }}</textarea>
-                      {% elif f.kind == 'file' %}
-                        <input
-                          type="file"
-                          name="{{ f.name }}"
-                          {% if f.accept %}accept="{{ f.accept }}"{% endif %}
-                          {% if f.required %}required{% endif %}
-                        />
-                      {% elif f.kind == 'loadable_select' %}
-                        <div class="loadable-select" data-name="{{ f.name }}" data-meta="{{ f.discovery_meta|join(',') }}">
-                          <select name="{{ f.name }}" disabled {% if f.required %}required{% endif %}>
-                            <option value="">— click "Load files" first —</option>
-                          </select>
-                          <button type="button" class="discover-btn">Load files</button>
-                        </div>
-                      {% else %}
-                        <input
-                          type="text"
-                          name="{{ f.name }}"
-                          placeholder="{{ f.placeholder }}"
-                          value="{{ f.default }}"
-                          {% if f.required %}required{% endif %}
-                          autocomplete="off"
-                          spellcheck="false"
-                        />
+          <section class="group" data-group="{{ group }}">
+            <h2 class="group-heading">{{ group }}</h2>
+            <div class="script-list">
+              {% for fn in fns %}
+                <article
+                  class="script-row"
+                  data-fn="{{ fn.id }}"
+                  data-multipart="{{ '1' if fn.has_file_field else '0' }}"
+                  data-discovery="{{ '1' if fn.has_discovery else '0' }}"
+                  data-duplicate-prompt="{{ '1' if fn.duplicate_upload_prompt else '0' }}"
+                  data-zip-overwrite-prompt="{{ '1' if fn.zip_overwrite_prompt else '0' }}"
+                  data-confirm-upload-prompt="{{ '1' if fn.confirm_upload_prompt else '0' }}"
+                  data-discovery-prefill="{{ '1' if fn.discovery_prefill else '0' }}"
+                  data-report-view-actions="{{ '1' if fn.report_view_actions else '0' }}"
+                >
+                  <div class="script-row-inner">
+                    <div class="script-title-group">
+                      <h3>{% if fn.icon %}<span class="card-icon">{{ fn.icon }}</span>{% endif %}{{ fn.title }}</h3>
+                      {% if fn.description %}
+                      <span class="desc-help-wrap">
+                        <button type="button" class="desc-help" aria-label="What this script does">?</button>
+                        <span class="desc-tooltip" role="tooltip">{{ fn.description }}</span>
+                      </span>
                       {% endif %}
-                    </label>
-                    {% endif %}
-                  {% endfor %}
-                  <div class="actions">
-                    {% if fn.run_actions %}
-                      {% for a in fn.run_actions %}
-                        <button type="button" class="run run-action" data-run-action="{{ a.id }}">{{ a.label }}</button>
+                      <div class="head-pills">
+                        {% if fn.background %}<span class="pill bg">bg</span>{% endif %}
+                        {% if fn.has_file_field %}<span class="pill bg">upload</span>{% endif %}
+                        {% if fn.has_discovery %}<span class="pill bg">disc</span>{% endif %}
+                      </div>
+                    </div>
+
+                    <form class="run-form">
+                      <div class="script-fields-wrap{% if fn.checkboxes_on_subrow %} layout-subrow-checkboxes{% elif fn.stack_text_select_fields %} layout-stacked-fields{% endif %}">
+                      {% if fn.checkboxes_on_subrow %}
+                        <div class="script-fields-main">
+                        {% for f in fn.fields %}
+                          {% if f.name == 'part_number' %}
+                          <input type="hidden" name="part_number" value="" />
+                          {% elif f.kind != 'checkbox' %}
+                          <label class="field{% if f.kind in ['textarea', 'file'] or f.label|length > 35 %} field-wide{% endif %}">
+                            <span>{{ f.label }}{% if f.required %} <em>*</em>{% endif %}</span>
+                            {% if f.kind == 'select' %}
+                              <select name="{{ f.name }}">
+                                {% for o in f.options %}
+                                  <option value="{{ o }}" {% if o == f.default %}selected{% endif %}>{{ o }}</option>
+                                {% endfor %}
+                              </select>
+                            {% elif f.kind == 'textarea' %}
+                              <textarea name="{{ f.name }}" rows="2" placeholder="{{ f.placeholder }}">{{ f.default }}</textarea>
+                            {% elif f.kind == 'file' %}
+                              <input
+                                type="file"
+                                name="{{ f.name }}"
+                                {% if f.accept %}accept="{{ f.accept }}"{% endif %}
+                                {% if f.required %}required{% endif %}
+                              />
+                            {% elif f.kind == 'loadable_select' %}
+                              <div class="loadable-select" data-name="{{ f.name }}" data-meta="{{ f.discovery_meta|join(',') }}">
+                                <select name="{{ f.name }}" disabled {% if f.required %}required{% endif %}>
+                                  <option value="">— load first —</option>
+                                </select>
+                                <button type="button" class="discover-btn">Load</button>
+                              </div>
+                            {% else %}
+                              <input
+                                type="text"
+                                name="{{ f.name }}"
+                                placeholder="{{ f.placeholder }}"
+                                value="{{ f.default }}"
+                                {% if f.required %}required{% endif %}
+                                autocomplete="off"
+                                spellcheck="false"
+                              />
+                            {% endif %}
+                          </label>
+                          {% endif %}
+                        {% endfor %}
+                        </div>
+                        <div class="script-fields-subrow">
+                        {% for f in fn.fields if f.kind == 'checkbox' %}
+                        <label class="checkbox-row">
+                          <input
+                            type="checkbox"
+                            name="{{ f.name }}"
+                            value="1"
+                            {% if f.default %}checked{% endif %}
+                          />
+                          <span class="checkbox-label">{{ f.label }}</span>
+                        </label>
+                        {% endfor %}
+                        </div>
+                      {% elif fn.stack_text_select_fields %}
+                      {% for f in fn.fields %}
+                        {% if f.name == 'part_number' %}
+                        <input type="hidden" name="part_number" value="" />
+                        {% else %}
+                        <label class="field field-stacked">
+                          <span>{{ f.label }}{% if f.required %} <em>*</em>{% endif %}</span>
+                          {% if f.kind == 'select' %}
+                            <select name="{{ f.name }}">
+                              {% for o in f.options %}
+                                <option value="{{ o }}" {% if o == f.default %}selected{% endif %}>{{ o }}</option>
+                              {% endfor %}
+                            </select>
+                          {% elif f.kind == 'textarea' %}
+                            <textarea name="{{ f.name }}" rows="2" placeholder="{{ f.placeholder }}">{{ f.default }}</textarea>
+                          {% else %}
+                            <input
+                              type="text"
+                              name="{{ f.name }}"
+                              placeholder="{{ f.placeholder }}"
+                              value="{{ f.default }}"
+                              {% if f.required %}required{% endif %}
+                              autocomplete="off"
+                              spellcheck="false"
+                            />
+                          {% endif %}
+                        </label>
+                        {% endif %}
                       {% endfor %}
-                    {% else %}
-                      <button type="submit" class="run">Run</button>
+                      {% if fn.discovery_prefill and fn.has_discovery %}
+                      <button type="button" class="discover-prefill run field-stacked-action">Arena prefill</button>
+                      {% endif %}
+                      {% else %}
+                      {% for f in fn.fields %}
+                        {% if f.name == 'part_number' %}
+                        <input type="hidden" name="part_number" value="" />
+                        {% elif f.kind == 'checkbox' %}
+                        <label class="checkbox-row">
+                          <input
+                            type="checkbox"
+                            name="{{ f.name }}"
+                            value="1"
+                            {% if f.default %}checked{% endif %}
+                          />
+                          <span class="checkbox-label">{{ f.label }}</span>
+                        </label>
+                        {% else %}
+                        <label class="field{% if f.kind in ['textarea', 'file'] or f.label|length > 35 %} field-wide{% endif %}">
+                          <span>{{ f.label }}{% if f.required %} <em>*</em>{% endif %}</span>
+                          {% if f.kind == 'select' %}
+                            <select name="{{ f.name }}">
+                              {% for o in f.options %}
+                                <option value="{{ o }}" {% if o == f.default %}selected{% endif %}>{{ o }}</option>
+                              {% endfor %}
+                            </select>
+                          {% elif f.kind == 'textarea' %}
+                            <textarea name="{{ f.name }}" rows="2" placeholder="{{ f.placeholder }}">{{ f.default }}</textarea>
+                          {% elif f.kind == 'file' %}
+                            <input
+                              type="file"
+                              name="{{ f.name }}"
+                              {% if f.accept %}accept="{{ f.accept }}"{% endif %}
+                              {% if f.required %}required{% endif %}
+                            />
+                          {% elif f.kind == 'loadable_select' %}
+                            <div class="loadable-select" data-name="{{ f.name }}" data-meta="{{ f.discovery_meta|join(',') }}">
+                              <select name="{{ f.name }}" disabled {% if f.required %}required{% endif %}>
+                                <option value="">— load first —</option>
+                              </select>
+                              <button type="button" class="discover-btn">Load</button>
+                            </div>
+                          {% else %}
+                            <input
+                              type="text"
+                              name="{{ f.name }}"
+                              placeholder="{{ f.placeholder }}"
+                              value="{{ f.default }}"
+                              {% if f.required %}required{% endif %}
+                              autocomplete="off"
+                              spellcheck="false"
+                            />
+                          {% endif %}
+                        </label>
+                        {% endif %}
+                      {% endfor %}
+
+                      {% if fn.discovery_prefill and fn.has_discovery %}
+                      <button type="button" class="discover-prefill run">Arena prefill</button>
+                      {% endif %}
+                      {% endif %}
+                      </div>
+
+                      <div class="script-actions">
+                        {% if fn.run_actions %}
+                          {% for a in fn.run_actions %}
+                            <button type="button" class="run run-action" data-run-action="{{ a.id }}">{{ a.label }}</button>
+                          {% endfor %}
+                        {% else %}
+                          <button type="submit" class="run">Run</button>
+                        {% endif %}
+                        <span class="status" aria-live="polite"></span>
+                      </div>
+                    </form>
+                  </div>
+
+                  <div class="card-prompt-store">
+                    {% if fn.duplicate_upload_prompt %}
+                    <div class="duplicate-upload-prompt" hidden>
+                      <p class="duplicate-upload-msg">File with this File Name Already Exists, Upload Anyway?</p>
+                      <div class="duplicate-upload-actions">
+                        <button type="button" class="run dup-yes">Yes</button>
+                        <button type="button" class="run dup-no">No</button>
+                      </div>
+                    </div>
                     {% endif %}
-                    <span class="status" aria-live="polite"></span>
-                  </div>
-                  {% if fn.discovery_prefill and fn.has_discovery %}
-                  <div class="prefill-row">
-                    <button type="button" class="discover-prefill run">Load name &amp; description from Arena</button>
-                  </div>
-                  {% endif %}
-                </form>
 
-                {% if fn.duplicate_upload_prompt %}
-                <div class="duplicate-upload-prompt" hidden>
-                  <p class="duplicate-upload-msg">File with this File Name Already Exists, Upload Anyway?</p>
-                  <div class="duplicate-upload-actions">
-                    <button type="button" class="run dup-yes">Yes</button>
-                    <button type="button" class="run dup-no">No</button>
-                  </div>
-                </div>
-                {% endif %}
+                    {% if fn.zip_overwrite_prompt %}
+                    <div class="zip-overwrite-prompt" hidden>
+                      <p class="zip-overwrite-msg">An existing zip file will be overwritten.</p>
+                      <div class="zip-overwrite-actions">
+                        <button type="button" class="run zip-overwrite-proceed">Proceed with Zip Overwrite</button>
+                        <button type="button" class="run zip-overwrite-cancel">Cancel</button>
+                      </div>
+                    </div>
+                    {% endif %}
 
-                {% if fn.zip_overwrite_prompt %}
-                <div class="zip-overwrite-prompt" hidden>
-                  <p class="zip-overwrite-msg">An existing zip file will be overwritten.</p>
-                  <div class="zip-overwrite-actions">
-                    <button type="button" class="run zip-overwrite-proceed">Proceed with Zip Overwrite</button>
-                    <button type="button" class="run zip-overwrite-cancel">Cancel</button>
-                  </div>
-                </div>
-                {% endif %}
+                    {% if fn.confirm_upload_prompt %}
+                    <div class="confirm-upload-prompt" hidden>
+                      <p class="confirm-upload-msg">Review the report above, then confirm BOM upload to Arena.</p>
+                      <div class="confirm-upload-actions">
+                        <button type="button" class="run confirm-upload-yes">Confirm Upload</button>
+                        <button type="button" class="run confirm-upload-no">Cancel</button>
+                      </div>
+                    </div>
+                    {% endif %}
 
-                <div class="output" hidden>
-                  <div class="output-actions" hidden>
-                    <button type="button" class="open-report-window">Open full report in new window</button>
-                    <button type="button" class="expand-report-here">Collapse report here</button>
-                  </div>
-                  <div class="report-panel">
-                    <div class="cmd"></div>
-                    <pre class="stdout"></pre>
                     {% if fn.proceed_after_fail %}
                     <div class="proceed-after-fail" hidden>
                       <button
@@ -168,59 +287,92 @@
                       >{{ fn.proceed_after_fail.label }}</button>
                     </div>
                     {% endif %}
-                    <pre class="stderr"></pre>
                   </div>
-                </div>
-              </article>
-            {% endfor %}
+                </article>
+              {% endfor %}
+            </div>
+          </section>
+        {% endfor %}
+
+        <p class="scripts-footer">
+          Add a script: edit <code>scripts\launcher\registry.py</code> and refresh.
+          API: <a href="/api/docs">/api/docs</a>.
+        </p>
+      </div>
+    </section>
+
+    <section class="panel output-panel" id="output-panel" aria-label="Output">
+      <header class="panel-head">
+        <h2>Output</h2>
+        <span class="output-script-title" id="output-script-title"></span>
+      </header>
+      <div class="panel-body">
+        <p class="output-empty" id="output-empty">Run a script to see output here.</p>
+        <div class="output-content" id="output-content" hidden>
+          <div class="output-actions" id="global-output-actions" hidden>
+            <button type="button" id="open-report-window">Open full report in new window</button>
+            <button type="button" id="expand-report-here">Collapse report here</button>
           </div>
-        </section>
-      {% endfor %}
+          <div class="cmd" id="global-cmd"></div>
+          <pre class="stdout" id="global-stdout"></pre>
+          <div id="output-prompts"></div>
+          <pre class="stderr" id="global-stderr"></pre>
+        </div>
+      </div>
+    </section>
 
-      <p class="footer">
-        Add a script: edit
-        <code>scripts\launcher\registry.py</code> and refresh.
-        API docs: <a href="/api/docs">/api/docs</a>.
-      </p>
-    </main>
-
-    <aside class="recent" id="recent-pn-panel">
-      <header class="recent-head">
-        <h2>Recent part numbers</h2>
+    <aside class="panel recent-panel" id="recent-pn-panel" aria-label="Recent part numbers">
+      <header class="panel-head recent-head">
+        <h2>Recent</h2>
         <button type="button" id="recent-clear" title="Clear list">clear</button>
       </header>
-      <p class="recent-hint">Shows your 15 most recent part numbers (sorted numerically, e.g. 213-15-006 before 292-15-001). The latest used is filled into every part-number field when you open this page.</p>
-      <ul id="recent-pn-list" class="recent-list"></ul>
+      <div class="panel-body">
+        <p class="recent-hint">15 most recent part numbers. Click to fill the part number field above.</p>
+        <ul id="recent-pn-list" class="recent-list"></ul>
+      </div>
     </aside>
+    </div>
   </div>
 
   <script>
-    // ----- group tabs (persisted) -----
-    const TAB_KEY = "launcher.active_group";
-    const tabs = [...document.querySelectorAll("#group-tabs .tab")];
-    const sections = [...document.querySelectorAll("section.group")];
-    function activateGroup(group) {
-      let matched = false;
-      for (const t of tabs) {
-        const on = t.dataset.group === group;
-        t.classList.toggle("active", on);
-        t.setAttribute("aria-selected", on ? "true" : "false");
-        if (on) matched = true;
-      }
-      for (const s of sections) {
-        s.hidden = s.dataset.group !== group;
-      }
-      if (matched) localStorage.setItem(TAB_KEY, group);
+    const globalPartNumber = document.getElementById("global-part-number");
+    const outputEmpty = document.getElementById("output-empty");
+    const outputContent = document.getElementById("output-content");
+    const outputScriptTitle = document.getElementById("output-script-title");
+    const globalCmdEl = document.getElementById("global-cmd");
+    const globalStdoutEl = document.getElementById("global-stdout");
+    const globalStderrEl = document.getElementById("global-stderr");
+    const globalOutputActions = document.getElementById("global-output-actions");
+    const openReportBtn = document.getElementById("open-report-window");
+    const expandReportBtn = document.getElementById("expand-report-here");
+    const outputPromptsHost = document.getElementById("output-prompts");
+
+    let activeOutputCtx = null;
+
+    function syncPartNumberFields(value) {
+      const v = (value || "").trim();
+      document.querySelectorAll('input[name="part_number"]').forEach((el) => {
+        if (el === globalPartNumber) return;
+        el.value = v;
+      });
     }
-    {
-      const stored = localStorage.getItem(TAB_KEY);
-      const initial = stored && tabs.some((t) => t.dataset.group === stored)
-        ? stored
-        : (tabs[0] && tabs[0].dataset.group);
-      if (initial) activateGroup(initial);
+
+    function showOutputPanel(show) {
+      outputEmpty.hidden = show;
+      outputContent.hidden = !show;
     }
-    for (const t of tabs) {
-      t.addEventListener("click", () => activateGroup(t.dataset.group));
+
+    function clearOutputPrompts() {
+      for (const el of [...outputPromptsHost.children]) {
+        const store = el.closest(".script-row")?.querySelector(".card-prompt-store");
+        if (store) store.appendChild(el);
+        else el.remove();
+      }
+    }
+
+    function mountPromptInOutput(promptEl) {
+      if (!promptEl) return;
+      outputPromptsHost.appendChild(promptEl);
     }
 
     // ----- workspace selector (persisted) -----
@@ -298,13 +450,15 @@
     function fillAllPartNumberFields(value) {
       const v = (value || "").trim();
       if (!v) return;
-      document.querySelectorAll('input[name="part_number"]').forEach((el) => {
-        el.value = v;
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      });
+      if (globalPartNumber) globalPartNumber.value = v;
+      syncPartNumberFields(v);
     }
     function getPartNumberFromForm(formEl) {
+      const newPnEl = formEl.querySelector('input[name="new_part_number"]');
+      const newPn = newPnEl && newPnEl.value ? newPnEl.value.trim() : "";
+      if (newPn) return newPn;
+      const globalPn = globalPartNumber && globalPartNumber.value ? globalPartNumber.value.trim() : "";
+      if (globalPn && formEl.querySelector('input[name="part_number"]')) return globalPn;
       for (const name of PART_NUMBER_INPUT_NAMES) {
         const el = formEl.querySelector(`input[name="${name}"]`);
         const v = el && el.value ? el.value.trim() : "";
@@ -312,7 +466,6 @@
       }
       return "";
     }
-    /** Same as clicking a recent part number: fill every part-number field and save to recents. */
     function rememberAndPropagatePartNumber(formEl) {
       const pnTrim = getPartNumberFromForm(formEl);
       if (!pnTrim) return;
@@ -340,7 +493,7 @@
         btn.type = "button";
         btn.className = "recent-item";
         btn.textContent = value;
-        btn.title = `Use ${value} in all part-number fields`;
+        btn.title = `Use ${value}`;
         btn.addEventListener("click", () => {
           fillAllPartNumberFields(value);
           pushRecent(value);
@@ -361,8 +514,13 @@
       const lastPn = getLastPartNumber();
       if (lastPn) fillAllPartNumberFields(lastPn);
     }
+    if (globalPartNumber) {
+      globalPartNumber.addEventListener("input", () => syncPartNumberFields(globalPartNumber.value));
+      globalPartNumber.addEventListener("change", () => syncPartNumberFields(globalPartNumber.value));
+    }
 
     function readJsonInputsFromForm(formEl) {
+      syncPartNumberFields(globalPartNumber ? globalPartNumber.value : "");
       const inputs = {};
       for (const el of formEl.querySelectorAll("input, select, textarea")) {
         if (!el.name) continue;
@@ -406,13 +564,6 @@
         .replace(/"/g, "&quot;");
     }
 
-    function shouldOfferReportActions(stdout, stderr) {
-      const combined = `${stdout || ""}\n${stderr || ""}`.trim();
-      if (!combined) return false;
-      const lines = combined.split("\n").length;
-      return combined.length >= REPORT_OPEN_MIN_CHARS || lines >= REPORT_OPEN_MIN_LINES;
-    }
-
     function buildLauncherReportHtml({ title, command, stdout, stderr, statusLabel }) {
       const parts = [];
       if (statusLabel) {
@@ -440,37 +591,11 @@
   <title>${escapeHtml(title)} - report</title>
   <style>
     :root { color-scheme: light dark; }
-    body {
-      margin: 0;
-      padding: 20px 24px 32px;
-      font-family: system-ui, Segoe UI, sans-serif;
-      line-height: 1.4;
-      background: #f6f7f9;
-      color: #1a1a1a;
-    }
-    @media (prefers-color-scheme: dark) {
-      body { background: #1e1e1e; color: #e8e8e8; }
-      pre { background: #2a2a2a; border-color: #444; }
-      .err { border-left-color: #e57373; }
-    }
+    body { margin: 0; padding: 20px 24px 32px; font-family: system-ui, Segoe UI, sans-serif; line-height: 1.4; background: #f6f7f9; color: #1a1a1a; }
+    @media (prefers-color-scheme: dark) { body { background: #1e1e1e; color: #e8e8e8; } pre { background: #2a2a2a; border-color: #444; } .err { border-left-color: #e57373; } }
     h1 { font-size: 1.25rem; margin: 0 0 8px; }
     h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin: 20px 0 8px; }
-    @media (prefers-color-scheme: dark) { h2 { color: #aaa; } }
-    .meta { font-size: 0.9rem; color: #444; margin: 0 0 16px; }
-    @media (prefers-color-scheme: dark) { .meta { color: #bbb; } }
-    pre.block {
-      font-family: Consolas, "Cascadia Mono", monospace;
-      font-size: 13px;
-      line-height: 1.45;
-      white-space: pre-wrap;
-      word-break: break-word;
-      margin: 0;
-      padding: 14px 16px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      background: #fff;
-      overflow-x: auto;
-    }
+    pre.block { font-family: Consolas, monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; margin: 0; padding: 14px 16px; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
     pre.err { border-left: 4px solid #c62828; }
   </style>
 </head>
@@ -488,45 +613,78 @@
       const w = window.open(url, "_blank");
       if (!w) {
         URL.revokeObjectURL(url);
-        window.alert(
-          "Could not open a new window. Allow pop-ups for this launcher page, or use Collapse report here."
-        );
+        window.alert("Could not open a new window. Allow pop-ups for this launcher page.");
         return;
       }
-      w.addEventListener(
-        "load",
-        () => {
-          URL.revokeObjectURL(url);
-        },
-        { once: true }
-      );
+      w.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
       setTimeout(() => URL.revokeObjectURL(url), 120000);
     }
 
-    function applyRunOutputToCard(ctx, data) {
-      const { output, cmdEl, outEl, errEl, actionsEl, openReportBtn } = ctx;
-      output.hidden = false;
-      cmdEl.textContent = data.command || "";
-      outEl.textContent = data.stdout || "";
-      errEl.textContent = data.stderr || data.error || "";
+    if (openReportBtn) {
+      openReportBtn.addEventListener("click", () => {
+        if (!activeOutputCtx?.lastReport) return;
+        openLauncherReportWindow(activeOutputCtx.lastReport);
+      });
+    }
+    if (expandReportBtn) {
+      expandReportBtn.addEventListener("click", () => {
+        const collapsed = outputContent.classList.toggle("output-collapsed");
+        expandReportBtn.textContent = collapsed ? "Expand report here" : "Collapse report here";
+        expandReportBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      });
+    }
+
+    function runOutputHasWarnings(data) {
+      const text = [data.stdout, data.stderr, data.error]
+        .filter((s) => s != null && String(s).trim() !== "")
+        .map((s) => String(s))
+        .join("\n");
+      if (!text) return false;
+      if (/\bWARNING:/i.test(text)) return true;
+      const summary = text.match(/Summary:\s*\d+\s*error\(s\),\s*(\d+)\s*warning\(s\)/i);
+      if (summary && parseInt(summary[1], 10) > 0) return true;
+      return false;
+    }
+
+    function successStatusClass(data) {
+      return runOutputHasWarnings(data) ? "status warn" : "status ok";
+    }
+
+    function setDoneStatus(statusEl, data) {
+      statusEl.textContent = `Done (${data.exit_code}).`;
+      statusEl.className = successStatusClass(data);
+    }
+
+    function applyRunOutputToPanel(ctx, data) {
+      showOutputPanel(true);
+      document.querySelectorAll(".script-row.active").forEach((r) => r.classList.remove("active"));
+      ctx.card.classList.add("active");
+      if (outputScriptTitle) outputScriptTitle.textContent = ctx.cardTitle;
+
+      globalCmdEl.textContent = data.command || "";
+      globalStdoutEl.textContent = data.stdout || "";
+      globalStderrEl.textContent = data.stderr || data.error || "";
+
       const stderrText = data.stderr || data.error || "";
-      const hasContent = Boolean(
-        String(data.stdout || "").trim() || String(stderrText).trim()
-      );
-      const showLongReportTools = shouldOfferReportActions(data.stdout, stderrText);
-      if (actionsEl) actionsEl.hidden = !hasContent;
-      if (openReportBtn) openReportBtn.hidden = !showLongReportTools;
-      if (hasContent) {
-        output.classList.remove("output-collapsed");
-        if (ctx.expandBtn) {
-          ctx.expandBtn.textContent = "Collapse report here";
-          ctx.expandBtn.setAttribute("aria-expanded", "true");
-        }
+      const hasContent = Boolean(String(data.stdout || "").trim() || String(stderrText).trim());
+      const showReportTools = ctx.reportViewActions && hasContent;
+      if (globalOutputActions) globalOutputActions.hidden = !showReportTools;
+      if (openReportBtn) openReportBtn.hidden = !showReportTools;
+
+      outputContent.classList.remove("output-collapsed");
+      if (expandReportBtn) {
+        expandReportBtn.textContent = "Collapse report here";
+        expandReportBtn.setAttribute("aria-expanded", "true");
       }
+
       let statusLabel = "";
       if (!data.background && data.exit_code != null) {
         statusLabel = data.ok
-          ? `Completed successfully (exit ${data.exit_code})`
+          ? (
+            runOutputHasWarnings(data)
+              ? `Completed with warnings (exit ${data.exit_code})`
+              : `Completed successfully (exit ${data.exit_code})`
+          )
           : `Finished with errors (exit ${data.exit_code})`;
       } else if (data.background) {
         statusLabel = "Started in background";
@@ -538,6 +696,7 @@
         stderr: stderrText,
         statusLabel,
       };
+      activeOutputCtx = ctx;
     }
 
     function zipOverwritePromptFromStdout(stdout) {
@@ -555,48 +714,56 @@
       }
     }
 
-    // ----- per-card setup -----
-    for (const card of document.querySelectorAll(".card")) {
+    function confirmUploadPromptFromStdout(stdout) {
+      const marker = "---UPLOAD-CONFIRM-PROMPT---";
+      const s = stdout || "";
+      const i = s.indexOf(marker);
+      if (i < 0) return null;
+      const tail = s.slice(i + marker.length).trim();
+      const line = tail.split(/\r?\n/).find((l) => /^\s*\{/.test(l));
+      if (!line) return { confirmUpload: true };
+      try {
+        return JSON.parse(line.trim());
+      } catch {
+        return { confirmUpload: true };
+      }
+    }
+
+    // ----- per-script-row setup -----
+    for (const card of document.querySelectorAll(".script-row")) {
       const fnId = card.dataset.fn;
       const isMultipart = card.dataset.multipart === "1";
       const hasDiscovery = card.dataset.discovery === "1";
       const form = card.querySelector(".run-form");
       const status = card.querySelector(".status");
-      const output = card.querySelector(".output");
-      const actionsEl = card.querySelector(".output-actions");
-      const openReportBtn = card.querySelector(".open-report-window");
-      const expandReportBtn = card.querySelector(".expand-report-here");
-      const cmdEl = card.querySelector(".cmd");
-      const outEl = card.querySelector(".stdout");
-      const errEl = card.querySelector(".stderr");
-      const cardTitle =
-        card.querySelector(".card-head h3")?.textContent?.trim() || "Script report";
+      const cardTitle = card.querySelector(".script-title-group h3")?.textContent?.trim() || "Script report";
+      const promptStore = card.querySelector(".card-prompt-store");
       const outputCtx = {
-        output,
-        cmdEl,
-        outEl,
-        errEl,
-        actionsEl,
-        openReportBtn,
-        expandBtn: expandReportBtn,
+        card,
         cardTitle,
+        reportViewActions: card.dataset.reportViewActions === "1",
         lastReport: null,
       };
       const submitRunBtn = form.querySelector('button.run[type="submit"]');
       const runActionButtons = [...form.querySelectorAll("button.run-action")];
       const primaryRunButtons = () =>
-        [...form.querySelectorAll(".actions button.run, .actions button.run-action")];
-      const proceedWrap = card.querySelector(".proceed-after-fail");
+        [...form.querySelectorAll(".script-actions button.run, .script-actions button.run-action")];
+      const proceedWrap = promptStore?.querySelector(".proceed-after-fail");
       const proceedBtn = proceedWrap?.querySelector("button[data-proceed-target]");
-      const dupWrap = card.querySelector(".duplicate-upload-prompt");
+      const dupWrap = promptStore?.querySelector(".duplicate-upload-prompt");
       const dupYes = dupWrap?.querySelector(".dup-yes");
       const dupNo = dupWrap?.querySelector(".dup-no");
       const duplicatePromptCard = card.dataset.duplicatePrompt === "1";
-      const zipOwWrap = card.querySelector(".zip-overwrite-prompt");
+      const zipOwWrap = promptStore?.querySelector(".zip-overwrite-prompt");
       const zipOwProceed = zipOwWrap?.querySelector(".zip-overwrite-proceed");
       const zipOwCancel = zipOwWrap?.querySelector(".zip-overwrite-cancel");
       const zipOwMsg = zipOwWrap?.querySelector(".zip-overwrite-msg");
       const zipOverwritePromptCard = card.dataset.zipOverwritePrompt === "1";
+      const confirmUpWrap = promptStore?.querySelector(".confirm-upload-prompt");
+      const confirmUpYes = confirmUpWrap?.querySelector(".confirm-upload-yes");
+      const confirmUpNo = confirmUpWrap?.querySelector(".confirm-upload-no");
+      const confirmUpMsg = confirmUpWrap?.querySelector(".confirm-upload-msg");
+      const confirmUploadPromptCard = card.dataset.confirmUploadPrompt === "1";
       const discoveryPrefill = card.dataset.discoveryPrefill === "1";
       const prefillBtn = form.querySelector("button.discover-prefill");
 
@@ -606,39 +773,33 @@
       }
 
       function setProceedVisible(show) {
-        if (proceedWrap) proceedWrap.hidden = !show;
+        if (!proceedWrap) return;
+        proceedWrap.hidden = !show;
+        if (show) mountPromptInOutput(proceedWrap);
+        else if (promptStore && proceedWrap.parentElement === outputPromptsHost) promptStore.appendChild(proceedWrap);
       }
 
       function setDuplicatePromptVisible(show) {
-        if (dupWrap) dupWrap.hidden = !show;
+        if (!dupWrap) return;
+        dupWrap.hidden = !show;
+        if (show) mountPromptInOutput(dupWrap);
+        else if (promptStore && dupWrap.parentElement === outputPromptsHost) promptStore.appendChild(dupWrap);
       }
 
       function setZipOverwritePromptVisible(show) {
-        if (zipOwWrap) zipOwWrap.hidden = !show;
+        if (!zipOwWrap) return;
+        zipOwWrap.hidden = !show;
+        if (show) mountPromptInOutput(zipOwWrap);
+        else if (promptStore && zipOwWrap.parentElement === outputPromptsHost) promptStore.appendChild(zipOwWrap);
       }
 
-      if (openReportBtn) {
-        openReportBtn.addEventListener("click", () => {
-          if (!outputCtx.lastReport) return;
-          openLauncherReportWindow(outputCtx.lastReport);
-        });
-      }
-      if (expandReportBtn) {
-        expandReportBtn.addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const collapsed = output.classList.toggle("output-collapsed");
-          expandReportBtn.textContent = collapsed
-            ? "Expand report here"
-            : "Collapse report here";
-          expandReportBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
-        });
+      function setConfirmUploadPromptVisible(show) {
+        if (!confirmUpWrap) return;
+        confirmUpWrap.hidden = !show;
+        if (show) mountPromptInOutput(confirmUpWrap);
+        else if (promptStore && confirmUpWrap.parentElement === outputPromptsHost) promptStore.appendChild(confirmUpWrap);
       }
 
-      // Auto-fill the "title" field from the picked file's basename, if a
-      // form has both a "file" file-input and a "title" text-input. We only
-      // overwrite when the title is empty or matches a previous filename
-      // (so we don't clobber what the user typed).
       const fileInput = form.querySelector('input[type="file"][name="file"]');
       const titleInput = form.querySelector('input[type="text"][name="title"]');
       if (fileInput && titleInput) {
@@ -654,13 +815,11 @@
         });
       }
 
-      // Discovery: "Load files" wires up loadable_select fields.
       if (hasDiscovery) {
         for (const wrap of form.querySelectorAll(".loadable-select")) {
-          const name = wrap.dataset.name;
-          const meta = (wrap.dataset.meta || "").split(",").filter(Boolean);
           const select = wrap.querySelector("select");
           const btn = wrap.querySelector(".discover-btn");
+          const meta = (wrap.dataset.meta || "").split(",").filter(Boolean);
           btn.addEventListener("click", async () => {
             const inputs = {};
             for (const el of form.querySelectorAll("input, select, textarea")) {
@@ -668,9 +827,10 @@
               if (!el.name) continue;
               inputs[el.name] = el.value;
             }
+            syncPartNumberFields(globalPartNumber ? globalPartNumber.value : "");
             btn.disabled = true;
             const orig = btn.textContent;
-            btn.textContent = "Loading…";
+            btn.textContent = "…";
             status.textContent = "";
             try {
               const res = await fetch(`/api/discover/${fnId}`, {
@@ -686,19 +846,18 @@
               if (!files.length) {
                 const opt = document.createElement("option");
                 opt.value = "";
-                opt.textContent = "(no files on this revision)";
+                opt.textContent = "(no files)";
                 select.appendChild(opt);
                 select.disabled = true;
               } else {
                 const placeholder = document.createElement("option");
                 placeholder.value = "";
-                placeholder.textContent = `— pick one of ${files.length} —`;
+                placeholder.textContent = `— ${files.length} files —`;
                 select.appendChild(placeholder);
                 for (const f of files) {
                   const opt = document.createElement("option");
                   opt.value = f.file_guid || "";
-                  const editionTxt = f.edition ? ` (ed ${f.edition})` : "";
-                  opt.textContent = `${f.number || ""}  ${f.title || ""}${editionTxt}  [${f.category_name || ""}]`;
+                  opt.textContent = `${f.number || ""} ${f.title || ""}`;
                   for (const m of meta) {
                     if (f[m] != null) opt.dataset[m] = f[m];
                   }
@@ -706,10 +865,10 @@
                 }
                 select.disabled = false;
               }
-              status.textContent = `Loaded ${files.length} file(s).`;
+              status.textContent = `${files.length} file(s).`;
               status.className = "status ok";
             } catch (e) {
-              status.textContent = `Load failed: ${e.message}`;
+              status.textContent = `Load failed`;
               status.className = "status err";
             } finally {
               btn.disabled = false;
@@ -727,9 +886,10 @@
             if (!el.name) continue;
             inputs[el.name] = el.value;
           }
+          syncPartNumberFields(globalPartNumber ? globalPartNumber.value : "");
           prefillBtn.disabled = true;
           const orig = prefillBtn.textContent;
-          prefillBtn.textContent = "Loading…";
+          prefillBtn.textContent = "…";
           status.textContent = "";
           try {
             const res = await fetch(`/api/discover/${fnId}`, {
@@ -747,10 +907,10 @@
                 if (el && "value" in el) el.value = v == null ? "" : String(v);
               }
             }
-            status.textContent = "Loaded name and description from Arena (edit if needed).";
+            status.textContent = "Prefilled.";
             status.className = "status ok";
           } catch (e) {
-            status.textContent = `Load failed: ${e.message}`;
+            status.textContent = "Prefill failed";
             status.className = "status err";
           } finally {
             prefillBtn.disabled = false;
@@ -765,21 +925,21 @@
         const runBtns = primaryRunButtons();
         for (const b of runBtns) b.disabled = true;
         const originalLabel = clickedBtn.textContent;
-        clickedBtn.textContent = "Running…";
+        clickedBtn.textContent = "…";
         status.textContent = "";
-        output.hidden = true;
-        if (actionsEl) actionsEl.hidden = true;
-        output.classList.remove("output-collapsed");
-        if (expandReportBtn) expandReportBtn.textContent = "Collapse report here";
+        clearOutputPrompts();
+        if (globalOutputActions) globalOutputActions.hidden = true;
         outputCtx.lastReport = null;
         setProceedVisible(false);
         setDuplicatePromptVisible(false);
         setZipOverwritePromptVisible(false);
+        setConfirmUploadPromptVisible(false);
 
         let fetchInit;
         let url;
         if (isMultipart) {
           const fd = new FormData();
+          syncPartNumberFields(globalPartNumber ? globalPartNumber.value : "");
           for (const el of form.querySelectorAll("input, select, textarea")) {
             if (!el.name) continue;
             if (el.type === "file") {
@@ -788,9 +948,6 @@
               fd.append(el.name, el.checked ? "1" : "0");
             } else {
               fd.append(el.name, el.value);
-              // For loadable_select, also surface the picked option's
-              // dataset attributes as <name>__<key> so build_command can
-              // forward e.g. existing_file__edition to the script.
               if (el.tagName === "SELECT" && el.selectedOptions[0]) {
                 for (const [k, v] of Object.entries(el.selectedOptions[0].dataset)) {
                   fd.append(`${el.name}__${k}`, v);
@@ -815,34 +972,39 @@
         try {
           const res = await fetch(url, fetchInit);
           const data = await res.json();
-          applyRunOutputToCard(outputCtx, data);
+          applyRunOutputToPanel(outputCtx, data);
           if (data.background) {
-            status.textContent = "Started in background.";
+            status.textContent = "Background.";
             status.className = "status ok";
           } else if (data.ok) {
-            status.textContent = `Done (exit ${data.exit_code}).`;
-            status.className = "status ok";
+            setDoneStatus(status, data);
             setProceedVisible(false);
             setDuplicatePromptVisible(false);
             setZipOverwritePromptVisible(false);
+            setConfirmUploadPromptVisible(false);
           } else {
-            const code = data.exit_code != null ? ` (exit ${data.exit_code})` : "";
+            const code = data.exit_code != null ? ` (${data.exit_code})` : "";
             const dupPayload = duplicatePromptFromStdout(data.stdout);
             const zipOwPayload = zipOverwritePromptFromStdout(data.stdout);
+            const confirmUpPayload = confirmUploadPromptFromStdout(data.stdout);
             const isDupExit =
-              duplicatePromptCard &&
-              dupWrap &&
-              !data.background &&
-              data.exit_code === 10 &&
-              dupPayload;
+              duplicatePromptCard && dupWrap && !data.background && data.exit_code === 10 && dupPayload;
             const isZipOwExit =
-              zipOverwritePromptCard &&
-              zipOwWrap &&
-              !data.background &&
-              data.exit_code === 11 &&
-              zipOwPayload;
-            if (isDupExit) {
-              status.textContent = `Stopped before upload${code}.`;
+              zipOverwritePromptCard && zipOwWrap && !data.background && data.exit_code === 11 && zipOwPayload;
+            const isConfirmUpExit =
+              confirmUploadPromptCard && confirmUpWrap && !data.background && data.exit_code === 12 && confirmUpPayload;
+            if (isConfirmUpExit) {
+              const detail = confirmUpPayload.message || "Review the report above, then confirm BOM upload to Arena.";
+              const extra = confirmUpPayload.csvName ? ` (${confirmUpPayload.csvName})` : "";
+              if (confirmUpMsg) confirmUpMsg.textContent = detail + extra;
+              status.textContent = `Confirm upload${code}.`;
+              status.className = "status ok";
+              setProceedVisible(false);
+              setDuplicatePromptVisible(false);
+              setZipOverwritePromptVisible(false);
+              setConfirmUploadPromptVisible(true);
+            } else if (isDupExit) {
+              status.textContent = `Duplicate${code}.`;
               status.className = "status err";
               setProceedVisible(false);
               setZipOverwritePromptVisible(false);
@@ -851,7 +1013,7 @@
               const detail = zipOwPayload.message || "An existing zip file will be overwritten.";
               const extra = zipOwPayload.zipName ? ` (${zipOwPayload.zipName})` : "";
               if (zipOwMsg) zipOwMsg.textContent = detail + extra;
-              status.textContent = `Stopped before overwriting zip${code}.`;
+              status.textContent = `Zip overwrite${code}.`;
               status.className = "status err";
               setProceedVisible(false);
               setDuplicatePromptVisible(false);
@@ -870,8 +1032,9 @@
             }
           }
         } catch (err) {
-          status.textContent = `Error: ${err.message}`;
+          status.textContent = `Error`;
           status.className = "status err";
+          applyRunOutputToPanel(outputCtx, { ok: false, error: err.message, stdout: "", stderr: err.message, command: "" });
         } finally {
           for (const b of runBtns) b.disabled = false;
           clickedBtn.textContent = originalLabel;
@@ -906,25 +1069,53 @@
               body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
             });
             const data = await res.json();
-            applyRunOutputToCard(outputCtx, data);
+            applyRunOutputToPanel(outputCtx, data);
             setDuplicatePromptVisible(false);
-            if (data.background) {
-              status.textContent = "Started in background.";
-              status.className = "status ok";
-            } else if (data.ok) {
-              status.textContent = `Done (exit ${data.exit_code}).`;
-              status.className = "status ok";
+            if (data.ok) {
+              setDoneStatus(status, data);
             } else {
-              const code = data.exit_code != null ? ` (exit ${data.exit_code})` : "";
-              status.textContent = `Failed${code}.`;
+              status.textContent = `Failed (${data.exit_code}).`;
               status.className = "status err";
             }
           } catch (err) {
-            status.textContent = `Error: ${err.message}`;
+            status.textContent = "Error";
             status.className = "status err";
           } finally {
             dupYes.disabled = false;
             dupNo.disabled = false;
+          }
+        });
+      }
+
+      if (confirmUpYes && confirmUpNo) {
+        confirmUpNo.addEventListener("click", () => setConfirmUploadPromptVisible(false));
+        confirmUpYes.addEventListener("click", async () => {
+          confirmUpYes.disabled = true;
+          confirmUpNo.disabled = true;
+          rememberAndPropagatePartNumber(form);
+          try {
+            const inputs = readJsonInputsFromForm(form);
+            inputs.confirm_upload = "1";
+            const res = await fetch(`/api/run/${fnId}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
+            });
+            const data = await res.json();
+            applyRunOutputToPanel(outputCtx, data);
+            setConfirmUploadPromptVisible(false);
+            if (data.ok) {
+              setDoneStatus(status, data);
+            } else {
+              status.textContent = `Failed (${data.exit_code}).`;
+              status.className = "status err";
+            }
+          } catch (err) {
+            status.textContent = "Error";
+            status.className = "status err";
+          } finally {
+            confirmUpYes.disabled = false;
+            confirmUpNo.disabled = false;
           }
         });
       }
@@ -934,7 +1125,6 @@
         zipOwProceed.addEventListener("click", async () => {
           zipOwProceed.disabled = true;
           zipOwCancel.disabled = true;
-          status.textContent = "";
           rememberAndPropagatePartNumber(form);
           try {
             const inputs = readJsonInputsFromForm(form);
@@ -945,47 +1135,16 @@
               body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
             });
             const data = await res.json();
-            applyRunOutputToCard(outputCtx, data);
+            applyRunOutputToPanel(outputCtx, data);
             setZipOverwritePromptVisible(false);
-            if (data.background) {
-              status.textContent = "Started in background.";
-              status.className = "status ok";
-            } else if (data.ok) {
-              status.textContent = `Done (exit ${data.exit_code}).`;
-              status.className = "status ok";
+            if (data.ok) {
+              setDoneStatus(status, data);
             } else {
-              const code = data.exit_code != null ? ` (exit ${data.exit_code})` : "";
-              const zipOwPayload = zipOverwritePromptFromStdout(data.stdout);
-              const isZipOwExit =
-                zipOverwritePromptCard &&
-                zipOwWrap &&
-                !data.background &&
-                data.exit_code === 11 &&
-                zipOwPayload;
-              if (isZipOwExit) {
-                const detail = zipOwPayload.message || "An existing zip file will be overwritten.";
-                const extra = zipOwPayload.zipName ? ` (${zipOwPayload.zipName})` : "";
-                if (zipOwMsg) zipOwMsg.textContent = detail + extra;
-                status.textContent = `Stopped before overwriting zip${code}.`;
-                setZipOverwritePromptVisible(true);
-              } else {
-                const dupPayload = duplicatePromptFromStdout(data.stdout);
-                if (
-                  duplicatePromptCard &&
-                  dupWrap &&
-                  data.exit_code === 10 &&
-                  dupPayload
-                ) {
-                  status.textContent = `Stopped before upload${code}.`;
-                  setDuplicatePromptVisible(true);
-                } else {
-                  status.textContent = `Failed${code}.`;
-                }
-              }
+              status.textContent = `Failed (${data.exit_code}).`;
               status.className = "status err";
             }
           } catch (err) {
-            status.textContent = `Error: ${err.message}`;
+            status.textContent = "Error";
             status.className = "status err";
           } finally {
             zipOwProceed.disabled = false;
@@ -1000,8 +1159,7 @@
           if (!targetId) return;
           proceedBtn.disabled = true;
           const prev = proceedBtn.textContent;
-          proceedBtn.textContent = "Running…";
-          status.textContent = "";
+          proceedBtn.textContent = "…";
           rememberAndPropagatePartNumber(form);
           try {
             const inputs = readJsonInputsFromForm(form);
@@ -1011,21 +1169,16 @@
               body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
             });
             const data = await res.json();
-            applyRunOutputToCard(outputCtx, data);
+            applyRunOutputToPanel(outputCtx, data);
             setProceedVisible(false);
-            if (data.background) {
-              status.textContent = "Convert started in background.";
-              status.className = "status ok";
-            } else if (data.ok) {
-              status.textContent = `Convert done (exit ${data.exit_code}).`;
-              status.className = "status ok";
+            if (data.ok) {
+              setDoneStatus(status, data);
             } else {
-              const code = data.exit_code != null ? ` (exit ${data.exit_code})` : "";
-              status.textContent = `Convert failed${code}.`;
+              status.textContent = `Failed (${data.exit_code}).`;
               status.className = "status err";
             }
           } catch (err) {
-            status.textContent = `Error: ${err.message}`;
+            status.textContent = "Error";
             status.className = "status err";
           } finally {
             proceedBtn.disabled = false;

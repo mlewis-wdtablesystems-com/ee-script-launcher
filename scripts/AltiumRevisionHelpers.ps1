@@ -25,25 +25,37 @@ function Parse-AltiumRevisionToken {
 
 function Resolve-PickPlaceZipRevisionLabel {
   <#
-  AltiumRevision = revision from folder/PrjPcb (Resolve-RevLetter).
-  RevisionOverride = optional user entry; letter must match Altium; zip uses override display.
+  AltiumRevision = revision from folder/PrjPcb when detectable (optional if user override is set).
+  RevisionOverride = user entry (letter + number); used for the zip name. When set, letter mismatch
+  against Altium is enforced only when AltiumRevision is non-empty.
   #>
   param(
-    [Parameter(Mandatory = $true)] [string]$AltiumRevision,
+    [string]$AltiumRevision = '',
     [string]$RevisionOverride = ''
   )
-  $alt = Parse-AltiumRevisionToken -RevisionText $AltiumRevision
-  if ([string]::IsNullOrWhiteSpace($RevisionOverride)) {
-    return $alt.Display
+  $overrideTrim = ("$RevisionOverride").Trim()
+  if ($overrideTrim) {
+    $user = Parse-AltiumRevisionToken -RevisionText $overrideTrim
+    $altTrim = ("$AltiumRevision").Trim()
+    if ($altTrim) {
+      $alt = Parse-AltiumRevisionToken -RevisionText $altTrim
+      if ($alt.Letter -cne $user.Letter) {
+        throw (
+          "Pick & Place revision letter mismatch: Altium outputs use letter '$($alt.Letter)' " +
+          "(from '$AltiumRevision'), but you specified letter '$($user.Letter)'."
+        )
+      }
+    }
+    return $user.Display
   }
-  $user = Parse-AltiumRevisionToken -RevisionText $RevisionOverride
-  if ($alt.Letter -cne $user.Letter) {
+  $altTrim = ("$AltiumRevision").Trim()
+  if (-not $altTrim) {
     throw (
-      "Pick & Place revision letter mismatch: Altium outputs use letter '$($alt.Letter)' " +
-      "(from '$AltiumRevision'), but you specified letter '$($user.Letter)'."
+      'Could not determine revision letter from the Altium folder or project. ' +
+      'Enter Revision (letter + number) in the launcher (e.g. D1).'
     )
   }
-  return $user.Display
+  return (Parse-AltiumRevisionToken -RevisionText $altTrim).Display
 }
 
 function Get-RevisionLetterOnly {
@@ -53,12 +65,23 @@ function Get-RevisionLetterOnly {
 
 function ConvertTo-PcbaAndBareBoardPartNumbers {
   param([Parameter(Mandatory = $true)] [string]$PartNumber)
+  $v = Get-BareBoardPartNumberVariants -PartNumber $PartNumber
+  return [pscustomobject]@{ Pcba = $v.Pcba; Bare = $v.Standard }
+}
+
+function Get-BareBoardPartNumberVariants {
+  param([Parameter(Mandatory = $true)] [string]$PartNumber)
   $m = [regex]::Match($PartNumber.Trim(), '^(?<prefix>\d+)-(?<asm>10|15)-(?<suffix>\d+)$')
   if (-not $m.Success) {
     throw "Part number must be a PCBA (PPP-10-XXX or PPP-15-XXX). Got: '$PartNumber'."
   }
-  $bareCode = if ($m.Groups['asm'].Value -eq '10') { '20' } else { '25' }
-  $pcba = "$($m.Groups['prefix'].Value)-$($m.Groups['asm'].Value)-$($m.Groups['suffix'].Value)"
-  $bare = "$($m.Groups['prefix'].Value)-$bareCode-$($m.Groups['suffix'].Value)"
-  return [pscustomobject]@{ Pcba = $pcba; Bare = $bare }
+  $p = $m.Groups['prefix'].Value
+  $a = $m.Groups['asm'].Value
+  $s = $m.Groups['suffix'].Value
+  $bareCode = if ($a -eq '10') { '20' } else { '25' }
+  return [pscustomobject]@{
+    Pcba     = "$p-$a-$s"
+    Standard = "$p-$bareCode-$s"
+    Legacy   = "$p-$a-$s-PCB"
+  }
 }

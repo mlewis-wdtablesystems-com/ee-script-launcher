@@ -28,7 +28,7 @@ import registry
 HERE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(HERE / "templates"))
 
-app = FastAPI(title="Script launcher", docs_url="/api/docs", redoc_url=None)
+app = FastAPI(title="Electronics Engineering Assistant", docs_url="/api/docs", redoc_url=None)
 app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 
 
@@ -54,7 +54,11 @@ def _serializable_functions() -> list[dict]:
                 ),
                 "duplicate_upload_prompt": fn.duplicate_upload_prompt,
                 "zip_overwrite_prompt": fn.zip_overwrite_prompt,
+                "confirm_upload_prompt": fn.confirm_upload_prompt,
+                "report_view_actions": fn.report_view_actions,
                 "discovery_prefill": fn.discovery_prefill,
+                "checkboxes_on_subrow": fn.checkboxes_on_subrow,
+                "stack_text_select_fields": registry.stack_text_select_fields(fn),
                 "run_actions": [
                     {"id": a.id, "label": a.label} for a in fn.run_actions
                 ],
@@ -63,11 +67,27 @@ def _serializable_functions() -> list[dict]:
     return out
 
 
+_GROUP_ORDER = ("Altium", "Arena PLM", "Rarely Used", "Altium MCP")
+_GROUP_DISPLAY = {
+    "Altium": "Altium Scripts",
+    "Arena PLM": "Arena Scripts",
+    "Rarely Used": "Rarely Used Scripts",
+    "Altium MCP": "Altium MCP Scripts",
+}
+
+
 def _grouped_functions() -> list[tuple[str, list[dict]]]:
     grouped: dict[str, list[dict]] = {}
     for fn in _serializable_functions():
         grouped.setdefault(fn["group"], []).append(fn)
-    return list(grouped.items())
+    ordered: list[tuple[str, list[dict]]] = []
+    for key in _GROUP_ORDER:
+        if key in grouped:
+            fns = registry.sort_launcher_group(key, grouped.pop(key))
+            ordered.append((_GROUP_DISPLAY.get(key, key), fns))
+    for key, fns in grouped.items():
+        ordered.append((_GROUP_DISPLAY.get(key, key), registry.sort_launcher_group(key, fns)))
+    return ordered
 
 
 def _arena_status() -> dict:

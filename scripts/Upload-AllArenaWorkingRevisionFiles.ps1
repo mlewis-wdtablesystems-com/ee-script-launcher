@@ -10,7 +10,7 @@
     3. Sync Arena Product Image on the PCBA item (skipped if an image at that revision already exists).
     4. Set PCBA working revision number to the entered revision (e.g. A1).
     5. Set bare-board (PPP-20/25-XXX) working revision to the letter only (e.g. A).
-    6. Run Check PCBA working-rev files.
+    6. Run Check PCBA and PCB Files.
 
   Credentials: ARENA_EMAIL, ARENA_PASSWORD, ARENA_WORKSPACE_ID.
 
@@ -69,7 +69,7 @@ $barePn = $parts.Bare
 $pcbaRev = $revParsed.Display
 $bareRev = $revParsed.Letter
 
-Write-Host '=== Upload All Working Revision Files (not inc BOM) ===' -ForegroundColor Cyan
+Write-Host '=== Upload Fab, P&P, Image Files ===' -ForegroundColor Cyan
 Write-Host ("  PCBA part:              {0}" -f $pcbaPn)
 Write-Host ("  Bare board (Arena):     {0}" -f $barePn)
 Write-Host ("  Revision (PCBA):        {0}" -f $pcbaRev)
@@ -123,7 +123,7 @@ Invoke-Step -Title "Set bare-board working revision ($barePn -> $bareRev)" -Acti
     -PartNumber $barePn -RevisionNumber $bareRev
 }
 
-Invoke-Step -Title 'Check PCBA working-rev files' -Action {
+Invoke-Step -Title 'Check PCBA and PCB Files' -Action {
   $checkArgs = @(
     '-PartNumber', $pcbaPn,
     '-ExpectedRevision', $pcbaRev

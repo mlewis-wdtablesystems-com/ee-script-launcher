@@ -7,7 +7,8 @@ The web UI rebuilds itself from this list automatically.
 Each FunctionSpec has:
   id           Unique slug; used in URLs and DOM ids.
   title        Card heading.
-  description  One sentence shown under the title.
+  description  Shown in a ? tooltip beside the card title (not inline text).
+  report_view_actions  If True, show Open full report / Collapse report after a run.
   fields       List of FieldSpec (text inputs / selects shown to the user).
   build_command  fn(values: dict[str, str]) -> list[str]
                  Returns the argv list passed to subprocess.
@@ -124,9 +125,14 @@ class FunctionSpec:
     duplicate_upload_prompt: bool = False
     # If true, launcher offers "Proceed with Zip Overwrite" when script exits 11.
     zip_overwrite_prompt: bool = False
+    # If true, launcher offers "Confirm Upload" when script exits 12 (BOM upload preview).
+    confirm_upload_prompt: bool = False
     # With discovery: "Load name & description" applies JSON `prefill` to same-named form fields.
     discovery_prefill: bool = False
     hidden: bool = False
+    report_view_actions: bool = False
+    # If true, non-checkbox fields render first; all checkboxes on the next row.
+    checkboxes_on_subrow: bool = False
 
     @property
     def has_file_field(self) -> bool:
@@ -192,6 +198,37 @@ def _force_zip_overwrite_args(v: dict[str, str]) -> list[str]:
     return []
 
 
+def _confirm_upload_args(v: dict[str, str]) -> list[str]:
+    cu = (v.get("confirm_upload") or "").strip().lower()
+    if cu in ("1", "true", "yes", "on"):
+        return ["-ConfirmUpload"]
+    return []
+
+
+def _arena_bom_import_args(v: dict[str, str]) -> list[str]:
+    mode_labels = {
+        "Auto (CREATE if empty, REPLACE if BOM exists)": "auto",
+        "CREATE (new / empty BOM)": "CREATE",
+        "OVERWRITE": "OVERWRITE",
+        "REPLACE (replace entire BOM)": "REPLACE",
+        "EDIT": "EDIT",
+    }
+    label = (v.get("import_mode") or "").strip()
+    mode = mode_labels.get(label, "auto")
+    args = ["-ImportMode", mode]
+    guid = (v.get("import_definition_guid") or "").strip()
+    if guid:
+        args.extend(["-ImportDefinitionGuid", guid])
+    return args
+
+
+def _confirm_overwrite_args(v: dict[str, str]) -> list[str]:
+    cu = (v.get("confirm_upload") or "").strip().lower()
+    if cu in ("1", "true", "yes", "on"):
+        return ["-ConfirmOverwrite"]
+    return []
+
+
 def _checkbox_on(values: dict[str, str], name: str, *, default: bool = False) -> bool:
     raw = (values.get(name) or "").strip().lower()
     if not raw:
@@ -211,14 +248,15 @@ FUNCTIONS: list[FunctionSpec] = [
         id="arena_upload_all_working_rev_files",
         group="Arena PLM",
         icon="📤",
-        title="Upload All Working Revision Files (not inc BOM)",
+        hidden=True,
+        title="Upload Fab, P&P, Image Files",
         description=(
             "For a PCBA part number and revision (letter + number, e.g. A1): upload existing "
             "Fabrication zip to the bare board, optionally build/upload Pick & Place zip "
             "(revision letter must match Altium when included), sync Product Image when "
             "not already at that revision, set PCBA "
             "working rev to A1 and bare-board working rev to the letter only, then run "
-            "Check PCBA working-rev files."
+            "Check PCBA and PCB Files."
         ),
         fields=[
             FieldSpec(
@@ -254,12 +292,14 @@ FUNCTIONS: list[FunctionSpec] = [
         id="arena_set_pcba_working_revisions",
         group="Arena PLM",
         icon="🔢",
-        title="Set PCBA and PCB working revisions",
+        confirm_upload_prompt=True,
+        title="Set Working Revision",
         description=(
-            "For a PCBA part number and revision (letter + number, e.g. A1): set the "
-            "PCBA working revision to the full value (A1) and the mapped bare-board item "
-            "(PPP-20 / PPP-25) working revision to the letter only (A). Read-only aside "
-            "from Arena revision numbers."
+            "For a PCBA part number and revision (letter + number, e.g. B1): set the "
+            "PCBA working revision to the full value (B1) and the mapped bare-board item "
+            "(PPP-20 / PPP-25) working revision to the letter only (B). If either working "
+            "revision is already set to something different, you are asked to confirm before "
+            "overwriting."
         ),
         fields=[
             FieldSpec(
@@ -271,7 +311,7 @@ FUNCTIONS: list[FunctionSpec] = [
             FieldSpec(
                 name="revision",
                 label="Revision (letter + number)",
-                placeholder="A1",
+                placeholder="B1",
                 required=True,
             ),
         ],
@@ -282,6 +322,7 @@ FUNCTIONS: list[FunctionSpec] = [
             v["part_number"],
             "-Revision",
             (v.get("revision") or "").strip(),
+            *_confirm_overwrite_args(v),
         ),
     ),
     FunctionSpec(
@@ -346,7 +387,7 @@ FUNCTIONS: list[FunctionSpec] = [
     ),
     FunctionSpec(
         id="arena_sync_product_image",
-        group="Arena PLM",
+        group="Altium",
         icon="🖼️",
         duplicate_upload_prompt=True,
         title="Sync Arena Product Image",
@@ -374,9 +415,67 @@ FUNCTIONS: list[FunctionSpec] = [
         ),
     ),
     FunctionSpec(
+        id="arena_upload_bom_from_altium_csv",
+        group="Arena PLM",
+        icon="📋",
+        report_view_actions=True,
+        confirm_upload_prompt=True,
+        title="Upload BOM from Altium CSV (No _ Designators)",
+        description=(
+            "Uses the newest .csv in the production BOM folder: shows PCBA (PPP-10/15) "
+            "and PCB (PPP-20/25) from the paired Excel export, runs Compare Arena vs "
+            "Altium BOM v2 when the Arena BOM has lines (otherwise notes it is empty), "
+            "then asks you to confirm before upload. Auto mode uses CREATE for an empty "
+            "Arena BOM, REPLACE when lines exist. Uses Import Engine when a matching "
+            "ITEM_BOM definition exists; otherwise adds lines via Arena REST API "
+            "(no import definition required)."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="Part number",
+                placeholder="272-15-001",
+                required=True,
+            ),
+            FieldSpec(
+                name="import_mode",
+                label="Arena import mode",
+                kind="select",
+                options=[
+                    "Auto (CREATE if empty, REPLACE if BOM exists)",
+                    "CREATE (new / empty BOM)",
+                    "OVERWRITE",
+                    "REPLACE (replace entire BOM)",
+                    "EDIT",
+                ],
+                default="Auto (CREATE if empty, REPLACE if BOM exists)",
+            ),
+            FieldSpec(
+                name="import_definition_guid",
+                label="Import definition GUID (optional)",
+                placeholder="Arena Import Engine GUID, or set ARENA_BOM_IMPORT_DEFINITION_GUID",
+            ),
+            FieldSpec(
+                name="force_direct_api",
+                label="Force REST API import (skip Import Engine)",
+                kind="checkbox",
+                default="",
+            ),
+        ],
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Upload-ArenaBomFromAltiumCsv.ps1",
+            "-PartNumber",
+            v["part_number"],
+            *_arena_bom_import_args(v),
+            *_optional_switch(v, "force_direct_api", "-ForceDirectApi"),
+            *_confirm_upload_args(v),
+        ),
+    ),
+    FunctionSpec(
         id="compare_bom_auto",
         group="Arena PLM",
         icon="🍒",
+        report_view_actions=True,
         title="Compare Arena vs Altium BOM v2",
         description=(
             "Takes only a part number: resolves the newest BOM .xlsx/.xls, "
@@ -443,17 +542,121 @@ FUNCTIONS: list[FunctionSpec] = [
         ),
     ),
     FunctionSpec(
+        id="arena_check_ready_for_production_release",
+        group="Arena PLM",
+        icon="⭐",
+        report_view_actions=True,
+        title="Check Ready for Production Release",
+        description=(
+            "Runs five steps for a PCBA part number and prints the full output of each "
+            "(all steps run even if one fails): remove Illustrative Image from the bare PCB "
+            "if wrongly linked, Arena checked-in revision letter vs Altium production folder, "
+            "Check Pick and Place File with Arena BOM, Check PCBA and PCB Files, "
+            "and Compare Working and Checked In Revision."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="PCBA part number",
+                placeholder="251-10-001 or 251-15-001",
+                required=True,
+            ),
+        ],
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Check-ReadyForProductionRelease.ps1",
+            "-PartNumber", v["part_number"],
+        ),
+    ),
+    FunctionSpec(
+        id="arena_compare_working_checked_in",
+        group="Arena PLM",
+        icon="🔀",
+        report_view_actions=True,
+        title="Compare Working and Checked In Revision",
+        description=(
+            "Enter a PCBA part number (PPP-10-XXX or PPP-15-XXX). The script auto-maps "
+            "to the bare PCB (PPP-20-XXX / PPP-25-XXX) and compares working vs most "
+            "recent checked-in for both items: revision numbers, files, BOM lines, and "
+            "revision-level fields (name, description, lifecycle, etc.). Ignores assemblyType "
+            "changes and a blank working revision number when nothing else differs. Read-only."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="PCBA part number",
+                placeholder="251-10-001 or 251-15-001",
+                required=True,
+            ),
+        ],
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Compare-WorkingAndCheckedInRevision.ps1",
+            "-PartNumber", v["part_number"],
+        ),
+    ),
+    FunctionSpec(
+        id="arena_open_part_supplier_link",
+        group="Arena PLM",
+        icon="🔗",
+        title="Open Part Supplier Link",
+        description=(
+            "Enter a lookup part number on this card (not the top-bar PCBA field). Searches "
+            "the whole Arena workspace for a unique match on internal part number, supplier "
+            "part number, or manufacturer part number. Partial lookup is allowed (e.g. ABC123 "
+            "matches ABC12345). When exactly one item matches, opens the primary file on the "
+            "first sourcing location (lowest AML rank) in your default browser or application."
+        ),
+        fields=[
+            FieldSpec(
+                name="lookup_part_number",
+                label="Lookup part number",
+                placeholder="098-10-235 or S3D-E3/57T or Digi-Key SKU",
+                required=True,
+            ),
+        ],
+        background=False,
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Open-PartSupplierLink.ps1",
+            "-LookupPartNumber", v["lookup_part_number"],
+        ),
+    ),
+    FunctionSpec(
+        id="arena_open_part_in_arena",
+        group="Arena PLM",
+        icon="🏷️",
+        title="Open Part in Arena",
+        description=(
+            "Enter a manufacturer part number or partial MPN. Searches Arena supplier items "
+            "and follows sourcing links to internal items. When exactly one Arena part number "
+            "matches, prints it and opens that item in the Arena web app."
+        ),
+        fields=[
+            FieldSpec(
+                name="manufacturer_part_number",
+                label="Manufacturer part number",
+                placeholder="S3D-E3/57T or partial MPN",
+                required=True,
+            ),
+        ],
+        background=False,
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Open-PartInArena.ps1",
+            "-ManufacturerPartNumber", v["manufacturer_part_number"],
+        ),
+    ),
+    FunctionSpec(
         id="arena_check_pcba_files",
         group="Arena PLM",
         icon="⚽",
-        title="Check PCBA working-rev files",
+        title="Check PCBA and PCB Files",
         description=(
             "For a PCBA part number (PPP-10-XXX or PPP-15-XXX), verify the "
-            "working revision has a Pick and Place + Illustrative Image "
-            "file, and that the matching bare board (PPP-20-XXX / PPP-25-XXX) "
-            "has an Altium Gerber Files file. Pick & Place titles must match "
-            "revision letter and number; Gerber and product image titles need "
-            "only the revision letter."
+            "working or most recent checked-in revision has Pick and Place + Illustrative Image "
+            "files, and that the matching PCB (PPP-20-XXX / PPP-25-XXX) has a fabrication zip "
+            "(Altium Gerber Files). Pick & Place titles must match revision letter and number; "
+            "product image and fabrication zip titles need only the PCBA revision letter. "
+            "Also checks PCBA and PCB revision letters match (e.g. A1 vs A). "
+            "When checking the most recent checked-in revision, also runs Compare Working "
+            "and Checked In Revision first."
         ),
         fields=[
             FieldSpec(
@@ -463,14 +666,31 @@ FUNCTIONS: list[FunctionSpec] = [
                 required=True,
             ),
             FieldSpec(
+                name="revision_mode",
+                label="Arena revision",
+                kind="select",
+                options=[
+                    "Working revision",
+                    "Most recent checked-in revision",
+                ],
+                default="Most recent checked-in revision",
+            ),
+            FieldSpec(
                 name="expected_revision",
                 label="Expected revision letter (optional override)",
-                placeholder="leave blank to auto-detect from working rev",
+                placeholder="leave blank to auto-detect from selected rev",
             ),
         ],
         build_command=lambda v: _ps(
             SCRIPTS_DIR / "Check-ArenaPcbaFiles.ps1",
             "-PartNumber", v["part_number"],
+            "-RevisionMode",
+            (
+                "effective_latest"
+                if (v.get("revision_mode") or "").strip()
+                == "Most recent checked-in revision"
+                else "working"
+            ),
             *(["-ExpectedRevision", v["expected_revision"]] if v.get("expected_revision") else []),
         ),
     ),
@@ -603,6 +823,7 @@ FUNCTIONS: list[FunctionSpec] = [
         id="arena_check_pick_place_with_bom",
         group="Arena PLM",
         icon="🔍",
+        report_view_actions=True,
         title="Check Pick and Place File with Arena BOM",
         description=(
             "For a part number, reads the single .csv in the production Pick Place folder "
@@ -610,7 +831,7 @@ FUNCTIONS: list[FunctionSpec] = [
             "to the Arena assembly BOM on the working or most recent released revision. "
             "Uses the same spec-aware regex checks as BOM export / Arena–Altium compare. "
             "N/F or DNF in P&P is OK when Arena also marks N/F or the line is absent; "
-            "the PCB board item may be missing from P&P; fiducials and mounting holes are skipped. "
+            "the PCB board item may be missing from P&P; fiducials, test pads, and mounting holes are skipped. "
             "Read-only; does not modify files."
         ),
         fields=[
@@ -648,6 +869,7 @@ FUNCTIONS: list[FunctionSpec] = [
         id="arena_correct_pick_place_from_bom",
         group="Arena PLM",
         icon="📍",
+        report_view_actions=True,
         title="Correct P&P for Old Project from Arena BOM",
         description=(
             "For a part number, locates the single .csv and .txt in the production "
@@ -692,8 +914,104 @@ FUNCTIONS: list[FunctionSpec] = [
         ),
     ),
     FunctionSpec(
-        id="arena_find_pcb_assemblies",
+        id="arena_bom_csv_1206_tuning_caps",
         group="Arena PLM",
+        icon="📄",
+        report_view_actions=True,
+        title="Take BOM from Arena and Change 1206 Tuning Caps",
+        description=(
+            "Exports the Arena BOM for a PCBA (working or most recent released revision) to "
+            "import-format CSV (LEVEL, Quantity, ITEM NUMBER, Reference Designator), applies "
+            "designator/value retargeting from an Excel or CSV tuning sheet (same rules as "
+            "Replace 1206 HV NP0 caps), merges rows with the same ITEM NUMBER, and writes the "
+            "result to your Desktop as <part>_Bom1206TuningCaps_<timestamp>.csv."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="PCBA part number",
+                placeholder="272-15-001",
+                required=True,
+            ),
+            FieldSpec(
+                name="revision_mode",
+                label="Arena BOM revision",
+                kind="select",
+                options=[
+                    "Working revision",
+                    "Most recent released revision",
+                ],
+                default="Working revision",
+            ),
+            FieldSpec(
+                name="tuning_sheet",
+                label="Designator / value sheet (Excel or CSV)",
+                kind="file",
+                accept=".xlsx,.xls,.csv",
+                required=True,
+            ),
+        ],
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Export-AndUpdateArenaBomCsv1206TuningCaps.ps1",
+            "-PartNumber",
+            v["part_number"],
+            "-TuningSheetPath",
+            v["tuning_sheet"],
+            "-RevisionMode",
+            (
+                "effective_latest"
+                if (v.get("revision_mode") or "").strip()
+                == "Most recent released revision"
+                else "working"
+            ),
+        ),
+    ),
+    FunctionSpec(
+        id="arena_bom_cap_replacements_from_sheet",
+        group="Arena PLM",
+        icon="🔋",
+        hidden=True,
+        report_view_actions=True,
+        title='Replace 1206 HV NP0 caps on PCBA BOM - Use "Take BOM from Arena instead"',
+        description=(
+            "Does not work: Arena's BOM API rejects reference-designator updates when applying "
+            "cap replacements directly (designator rejection errors). Use "
+            '"Take BOM from Arena and Change 1206 Tuning Caps" instead — export the BOM to CSV, '
+            "apply designator/value changes offline, then upload the revised BOM."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="PCBA part number",
+                placeholder="272-15-001",
+                required=True,
+            ),
+            FieldSpec(
+                name="replacement_sheet",
+                label="Designator / value Excel sheet",
+                kind="file",
+                accept=".xlsx,.xls",
+                required=True,
+            ),
+            FieldSpec(
+                name="apply_changes",
+                label="Apply changes to Arena BOM (unchecked = preview only)",
+                kind="checkbox",
+                default="",
+            ),
+        ],
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Set-ArenaBomCapReplacementsFromSheet.ps1",
+            "-PartNumber",
+            v["part_number"],
+            "-ExcelPath",
+            v["replacement_sheet"],
+            *_optional_switch(v, "apply_changes", "-ApplyChanges"),
+        ),
+    ),
+    FunctionSpec(
+        id="arena_find_pcb_assemblies",
+        group="Rarely Used",
         icon="🍉",
         title="Find PCB assemblies in BOM",
         description=(
@@ -760,7 +1078,7 @@ FUNCTIONS: list[FunctionSpec] = [
     ),
     FunctionSpec(
         id="arena_export_supplier_bom",
-        group="Arena PLM",
+        group="Rarely Used",
         icon="📤",
         title="Export Supplier BOM",
         description=(
@@ -1039,6 +1357,7 @@ FUNCTIONS: list[FunctionSpec] = [
         id="altium_bom_export_workflow",
         group="Altium",
         icon="✅",
+        report_view_actions=True,
         title="BOM export check and CSV",
         description=(
             "On the PJM sheet (default sheet 2), checks each 01-PJM Part_Number against "
@@ -1101,6 +1420,7 @@ FUNCTIONS: list[FunctionSpec] = [
         icon="🏀",
         duplicate_upload_prompt=True,
         zip_overwrite_prompt=True,
+        checkboxes_on_subrow=True,
         title="Pick & Place zip",
         description=(
             "Optionally zip the production 'Pick Place' folder into "
@@ -1152,6 +1472,56 @@ FUNCTIONS: list[FunctionSpec] = [
             *_optional_switch(v, "use_existing_file", "-UseExistingFile"),
             *_force_upload_args(v),
             *_force_zip_overwrite_args(v),
+        ),
+    ),
+    FunctionSpec(
+        id="order_boards_from_simon",
+        group="Altium",
+        icon="📧",
+        title="Order boards from Simon",
+        description=(
+            "Draft an HTML Outlook email to Simon Graham for the bare-board part number "
+            "(Fabrication and Gerber zips plus PFS pdf; builds zips first if missing). "
+            "Opens in New Outlook (olk.exe) when Classic COM is unavailable."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="Part number",
+                placeholder="272-10-001 (PCBA or bare board)",
+                required=True,
+            ),
+            FieldSpec(
+                name="description",
+                label="Description",
+                kind="textarea",
+                placeholder="e.g. Rev B - updated stackup",
+            ),
+            FieldSpec(
+                name="quantity",
+                label="Quantity",
+                placeholder='10 or "Marcos to decide"',
+                required=True,
+            ),
+            FieldSpec(
+                name="urgency",
+                label="Urgency",
+                kind="select",
+                options=["high", "low", "unstated"],
+                default="unstated",
+            ),
+        ],
+        background=False,
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Order-BoardsFromSimon.ps1",
+            "-PartNumber",
+            v["part_number"],
+            "-Description",
+            (v.get("description") or "").strip(),
+            "-Quantity",
+            v["quantity"],
+            "-Urgency",
+            (v.get("urgency") or "unstated").strip(),
         ),
     ),
     # ----- Altium MCP (live bridge) -----
@@ -1284,8 +1654,9 @@ FUNCTIONS: list[FunctionSpec] = [
         title="Copy Checklist into Folder",
         description=(
             "Copies the newest 'WDTS - PCB Design Checklist vX.X' template from the "
-            "Altium Library into the part's main folder (same root as Open Altium part folder), "
-            "then opens the copy in Excel."
+            "Altium Library into the part's main folder as "
+            "'{checklist} {PCBA} Rev {revision}', using the production-folder revision "
+            "(Rev A if unknown), then opens the copy in Excel."
         ),
         fields=[
             FieldSpec(
@@ -1334,7 +1705,7 @@ FUNCTIONS: list[FunctionSpec] = [
     ),
     FunctionSpec(
         id="compare_excel_altium_library_arena",
-        group="Altium",
+        group="Rarely Used",
         icon="📊",
         title="Compare Excel Altium Library with Arena",
         description=(
@@ -1377,7 +1748,8 @@ FUNCTIONS: list[FunctionSpec] = [
         id="arena_duplicate_item_from_existing",
         group="Arena PLM",
         icon="📑",
-        title="Duplicate Arena Item from Existing Item (untested)",
+        report_view_actions=True,
+        title="Duplicate Arena Item from Existing Item - BOM COPY DOESN'T WORK WITH NON-STANDARD DESIGNATORS",
         description=(
             "Creates a new Arena item from an existing one: enter the old and new part numbers, "
             "use 'Load name & description from Arena' to pull the source item name and description into "
@@ -1385,7 +1757,10 @@ FUNCTIONS: list[FunctionSpec] = [
             "and whether to read the source from the working revision, the latest effective (released) "
             "revision, or a specific revision letter in the override box. Set the new item's starting "
             "revision number. Owner defaults to your Windows display name (override optional). "
-            "Untested — verify results in Arena."
+            "With 'Add bare PCB also' checked, after the PCBA duplicate the same flow runs for the mapped "
+            "PPP-20 / PPP-25 bare board, or legacy PPP-10-XXX-PCB / PPP-15-XXX-PCB when the standard bare "
+            "item is missing (name and description copied from the new PCBA, with PCBA changed to PCB where "
+            "present; new revision letter only, e.g. A1 -> A)."
         ),
         fields=[
             FieldSpec(
@@ -1449,6 +1824,12 @@ FUNCTIONS: list[FunctionSpec] = [
                 label="Owner full name (blank = Windows session display name)",
                 placeholder="",
             ),
+            FieldSpec(
+                name="add_bare_pcb_also",
+                label="Add bare PCB also",
+                kind="checkbox",
+                default="",
+            ),
         ],
         discovery=DiscoverySpec(
             build_command=lambda v: _ps(
@@ -1488,9 +1869,72 @@ FUNCTIONS: list[FunctionSpec] = [
                 if (v.get("owner_full_name") or "").strip()
                 else []
             ),
+            "-AddBarePcbAlso",
+            "yes" if _checkbox_on(v, "add_bare_pcb_also") else "no",
         ),
     ),
 ]
+
+
+# Launcher tab order within each group (by function id). Unlisted visible scripts
+# keep registry list order after these entries.
+LAUNCHER_GROUP_SCRIPT_ORDER: dict[str, list[str]] = {
+    "Altium": [
+        "altium_open_explorer",
+        "altium_open_prjpcb",
+        "altium_copy_checklist_into_folder",
+        "altium_fabrication_zip_workflow",
+        "altium_gerber_zip_workflow",
+        "order_boards_from_simon",
+        "altium_bom_export_workflow",
+        "altium_pickplace_zip_workflow",
+        "arena_sync_product_image",
+    ],
+    "Arena PLM": [
+        "arena_set_pcba_working_revisions",
+        "arena_check_ready_for_production_release",
+        "arena_check_pick_place_with_bom",
+        "arena_check_pcba_files",
+        "arena_compare_working_checked_in",
+        "arena_open_part_supplier_link",
+        "arena_open_part_in_arena",
+        "compare_bom_auto",
+        "arena_upload_bom_from_altium_csv",
+        "arena_correct_pick_place_from_bom",
+        "arena_bom_csv_1206_tuning_caps",
+        "arena_duplicate_item_from_existing",
+    ],
+    "Rarely Used": [
+        "compare_excel_altium_library_arena",
+        "arena_find_pcb_assemblies",
+        "arena_export_supplier_bom",
+    ],
+}
+
+
+_STACKABLE_FIELD_KINDS = frozenset({"text", "select", "textarea"})
+
+
+def stack_text_select_fields(spec: FunctionSpec) -> bool:
+    """True when every non-part-number field is a text input, textarea, or select."""
+    if spec.checkboxes_on_subrow:
+        return False
+    visible = [f for f in spec.fields if f.name != "part_number"]
+    if not visible:
+        return False
+    return all(f.kind in _STACKABLE_FIELD_KINDS for f in visible)
+
+
+def sort_launcher_group(group: str, functions: list[dict]) -> list[dict]:
+    """Sort visible launcher cards within a group."""
+    order = LAUNCHER_GROUP_SCRIPT_ORDER.get(group)
+    if not order:
+        return functions
+    rank = {function_id: index for index, function_id in enumerate(order)}
+    return sorted(
+        functions,
+        key=lambda fn: (rank.get(fn["id"], len(order)), fn.get("title") or ""),
+    )
 
 
 def find(function_id: str) -> FunctionSpec | None:

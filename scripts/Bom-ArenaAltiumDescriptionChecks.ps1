@@ -27,6 +27,8 @@ foreach ($x in @(
     '098-10-584'
     # Terminal block: P&P "Connector" vs Arena full header description — e.g. 190-15-001 J1/J2
     '098-10-508'
+    # 2.2 uH wirewound inductor: P&P "IND 2.2UH ... 0.073OHM" vs Arena "2.2 uH ... 73mOhm" — e.g. 272-10-001 L1
+    '098-10-461'
   )) {
   [void]$script:BomArenaAltiumDescriptionBypassPartNumbers.Add($x)
 }
@@ -139,6 +141,75 @@ function Get-ValueTokensFromDesc([string]$s) {
   return @($set | Sort-Object)
 }
 
+function Get-BomPfValueFromToken([string]$Token) {
+  if ($Token -match '^(\d+(?:\.\d+)?)pf$') { return [double]$matches[1] }
+  return $null
+}
+
+function Remove-BomCapTolerancePfTokens([string[]]$Tokens) {
+  <#
+  Drop small pF tokens that are tolerance bands (e.g. 0.25pf from "±0.25pF") when a larger
+  nominal pF value is also present (e.g. 5.6pf). Applies across assemblies, not one part number.
+  #>
+  $pfTokens = @($Tokens | Where-Object { $_ -match 'pf$' })
+  if ($pfTokens.Count -le 1) { return @($Tokens) }
+  $pfValues = @($pfTokens | ForEach-Object { Get-BomPfValueFromToken $_ } | Where-Object { $null -ne $_ })
+  if ($pfValues.Count -le 1) { return @($Tokens) }
+  $nominal = ($pfValues | Measure-Object -Maximum).Maximum
+  if ($nominal -le 0) { return @($Tokens) }
+  $keep = New-Object System.Collections.Generic.HashSet[string]
+  foreach ($t in $Tokens) {
+    if ($t -notmatch 'pf$') {
+      [void]$keep.Add($t)
+      continue
+    }
+    $v = Get-BomPfValueFromToken $t
+    if ($null -eq $v) {
+      [void]$keep.Add($t)
+      continue
+    }
+    if ($v -lt $nominal -and $v -le ($nominal * 0.2)) { continue }
+    [void]$keep.Add($t)
+  }
+  return @($keep | Sort-Object)
+}
+
+function Convert-BomValueTokenToMilliOhmKey([string]$Token) {
+  $t = $Token.ToLowerInvariant()
+  if ($t -match '^(\d+(?:\.\d+)?)mohm$') {
+    return [string][Math]::Round([double]$matches[1], 6) + 'mohm'
+  }
+  if ($t -match '^(\d+(?:\.\d+)?)ohm$') {
+    $o = [double]$matches[1]
+    if ($o -lt 1000) {
+      return [string][Math]::Round($o * 1000.0, 6) + 'mohm'
+    }
+  }
+  return $null
+}
+
+function Get-BomCompareValueTokens([string]$Description) {
+  $raw = @(Get-ValueTokensFromDesc $Description)
+  $filtered = @(Remove-BomCapTolerancePfTokens $raw)
+  $keys = New-Object System.Collections.Generic.HashSet[string]
+  foreach ($t in $filtered) {
+    $mohm = Convert-BomValueTokenToMilliOhmKey $t
+    if ($mohm) { [void]$keys.Add($mohm) }
+    else { [void]$keys.Add($t) }
+  }
+  return @($keys | Sort-Object)
+}
+
+function Test-BomCompareValueTokenSets {
+  param(
+    [string[]]$valA,
+    [string[]]$valB
+  )
+  if ($valA.Count -eq 0 -or $valB.Count -eq 0) { return $true }
+  $valD = Compare-Object -ReferenceObject $valA -DifferenceObject $valB -SyncWindow 0
+  return (-not $valD)
+}
+
 function Get-DimensionMmTokensFromDesc([string]$s) {
   if ([string]::IsNullOrWhiteSpace($s)) { return @() }
   $set = New-Object System.Collections.Generic.HashSet[string]
@@ -171,8 +242,8 @@ function Test-BomCmcFerriteLooseCompatible {
   $na = Normalize-BomDescriptionText $a
   $nb = Normalize-BomDescriptionText $b
   if ($na.Contains($nb) -or $nb.Contains($na)) { return $true }
-  $valA = @(Get-ValueTokensFromDesc $a)
-  $valB = @(Get-ValueTokensFromDesc $b)
+  $valA = @(Get-BomCompareValueTokens $a)
+  $valB = @(Get-BomCompareValueTokens $b)
   if ($valA.Count -gt 0 -and $valB.Count -gt 0) {
     $missingA = @($valA | Where-Object { $valB -notcontains $_ })
     $missingB = @($valB | Where-Object { $valA -notcontains $_ })
@@ -265,17 +336,22 @@ function Test-BomDescriptionsCompatible {
 
   $fA = @(Get-FootprintTokensFromDesc $a)
   $fB = @(Get-FootprintTokensFromDesc $b)
+  $valA = @(Get-BomCompareValueTokens $a)
+  $valB = @(Get-BomCompareValueTokens $b)
   if ($fA.Count -gt 0 -and $fB.Count -gt 0) {
     $fd = Compare-Object -ReferenceObject $fA -DifferenceObject $fB -SyncWindow 0
     if ($fd) {
       return @{ Ok = $false; Message = ("Footprint / case-code tokens differ: arena=[{0}] altium=[{1}]" -f ($fA -join ','), ($fB -join ',')) }
     }
-    # Same case size / package on both sides — do not nitpick value/impedance wording (e.g. ferrite beads).
+    # Same package — still require matching R/L/C values when both sides state them (e.g. 270pF vs 240pF).
+    if ($valA.Count -gt 0 -and $valB.Count -gt 0) {
+      if (-not (Test-BomCompareValueTokenSets -valA $valA -valB $valB)) {
+        return @{ Ok = $false; Message = ("Value tokens (R/L/C style) differ: arena=[{0}] altium=[{1}]" -f ($valA -join ','), ($valB -join ',')) }
+      }
+    }
+    # Same case size / package — do not nitpick impedance wording when value tokens are absent (e.g. ferrite beads).
     return @{ Ok = $true; Message = '' }
   }
-
-  $valA = @(Get-ValueTokensFromDesc $a)
-  $valB = @(Get-ValueTokensFromDesc $b)
   if ($valA.Count -gt 0 -and $valB.Count -gt 0) {
     if ($AllowExtraValueTokensOnAltiumSide) {
       $missingFromDesc = @($valA | Where-Object { $valB -notcontains $_ })
@@ -290,8 +366,7 @@ function Test-BomDescriptionsCompatible {
       }
     }
     else {
-      $valD = Compare-Object -ReferenceObject $valA -DifferenceObject $valB -SyncWindow 0
-      if ($valD) {
+      if (-not (Test-BomCompareValueTokenSets -valA $valA -valB $valB)) {
         return @{ Ok = $false; Message = ("Value tokens (R/L/C style) differ: arena=[{0}] altium=[{1}]" -f ($valA -join ','), ($valB -join ',')) }
       }
     }

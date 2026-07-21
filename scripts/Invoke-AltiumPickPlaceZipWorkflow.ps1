@@ -30,6 +30,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $scriptsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+. (Join-Path $scriptsDir 'LauncherNestedScriptHelpers.ps1')
 $openScript = Join-Path $scriptsDir 'Open-AltiumPartFolder.ps1'
 $syncScript = Join-Path $scriptsDir 'Sync-ArenaPickPlaceZip.ps1'
 foreach ($p in @($openScript, $syncScript)) {
@@ -58,11 +59,7 @@ if ($CreateZip) {
     $openArgs += '-RevisionOverride', $RevisionOverride.Trim()
   }
   if ($ForceZipOverwrite) { $openArgs += '-ForceZipOverwrite' }
-  $ppOut = & powershell.exe @openArgs 2>&1
-  Write-Host (($ppOut | ForEach-Object { "$_" }) -join "`n")
-  if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-  }
+  Invoke-NestedLauncherPowerShell -ArgumentList $openArgs -StepLabel 'Build Pick & Place zip' | Out-Null
 }
 
 if ($UploadToArena) {
@@ -78,10 +75,8 @@ if ($UploadToArena) {
   if ($ForceUpload) {
     $syncArgs += '-ForceUpload'
   }
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass @syncArgs
-  if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-  }
+  $syncInvokeArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass') + $syncArgs
+  Invoke-NestedLauncherPowerShell -ArgumentList $syncInvokeArgs -StepLabel 'Upload Pick & Place zip to Arena' | Out-Null
 }
 
 Write-Host ''

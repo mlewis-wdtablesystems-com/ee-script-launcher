@@ -27,8 +27,8 @@
   Skip the duplicate-filename confirmation (used when the launcher user chose Yes).
 
 .PARAMETER RevisionOverride
-  Optional revision for the zip name (letter + number, e.g. D1). Letter must match Altium;
-  used when locating or building the zip and for Arena upload title matching.
+  Revision for the zip name (letter + number, e.g. D1). Required when Altium folder/project
+  has no detectable revision letter. When Altium revision is detectable, letter must match.
 
 .EXAMPLE
   .\Sync-ArenaPickPlaceZip.ps1 -PartNumber 294-10-022
@@ -147,8 +147,8 @@ if ([string]::IsNullOrWhiteSpace($canonical)) {
   throw 'ResolveJson did not return canonical.'
 }
 $revLetter = $resolved.revLetter
-if ([string]::IsNullOrWhiteSpace($revLetter)) {
-  throw 'ResolveJson did not return revLetter; cannot name Pick & Place zip.'
+if ([string]::IsNullOrWhiteSpace($revLetter) -and [string]::IsNullOrWhiteSpace($RevisionOverride)) {
+  throw 'ResolveJson did not return revLetter; enter Revision (letter + number) in the launcher.'
 }
 
 $assemblyPn = Resolve-AssemblyPartNumber $canonical
@@ -164,7 +164,9 @@ Write-Host "  Production document folder: $prodDocDir"
 Write-Host "  Canonical (zip name):       $canonical"
 Write-Host "  PCBA part (Arena):          $assemblyPn"
 $zipRev = Resolve-PickPlaceZipRevisionLabel -AltiumRevision $revLetter -RevisionOverride $RevisionOverride
-Write-Host "  Revision (from Altium):     $revLetter"
+if ($revLetter) {
+  Write-Host "  Revision (from Altium):     $revLetter"
+}
 if (-not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
   Write-Host "  Revision (zip name):        $zipRev"
 }

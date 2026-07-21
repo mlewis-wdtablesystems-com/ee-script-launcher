@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Duplicate an Arena item to a new part number (untested): preview name/description or perform create + optional BOM/files.
+  Duplicate an Arena item to a new part number: preview name/description or perform create + optional BOM/files.
 
 .DESCRIPTION
   Preview mode (-Mode Preview): logs in, loads the source item by old part number, and prints JSON only:
@@ -30,6 +30,10 @@
   Source revision: -SourceRevisionMode working | effective_latest, or -SourceRevisionOverride with a rev letter
   (e.g. B) to copy from that specific revision.
 
+  When the source is a PCBA (PPP-10-XXX or PPP-15-XXX), optionally after a successful duplicate the same flow runs
+  for the mapped bare board (PPP-20 / PPP-25, or legacy PPP-10-XXX-PCB / PPP-15-XXX-PCB) when -AddBarePcbAlso is yes. Bare board name and description match the
+  new PCBA; any "PCBA" in that text is changed to "PCB". -NewItemRevision uses the letter only (e.g. A1 -> A).
+
   Credentials: ARENA_EMAIL, ARENA_PASSWORD, ARENA_WORKSPACE_ID.
 
 .PARAMETER Mode
@@ -52,6 +56,8 @@ param(
   [string]$NewItemRevision = 'A',
   [string]$OwnerFullName = '',
   [ValidateSet('Preview', 'Execute')] [string]$Mode = 'Execute',
+  [string]$AddBarePcbAlso = 'no',
+  [switch]$BarePcbFollowUp,
   [string]$Email = $env:ARENA_EMAIL,
   [string]$WorkspaceId = $env:ARENA_WORKSPACE_ID,
   [string]$BaseUrl = 'https://api.arenasolutions.com/v1'
@@ -710,13 +716,15 @@ if ($doBom) {
   try {
     $bom = Invoke-ArenaJson -Uri "$apiRoot/items/$srcGuid/bom" -Headers $headers
   } catch {
-    Write-Warning "Could not read BOM on source: $($_.Exception.Message)"
-    $bom = $null
+    throw "Could not read BOM on source item: $($_.Exception.Message)"
   }
   if ($bom -and $bom.results) {
     $n = 0
+    $attempted = 0
+    $failed = New-Object System.Collections.Generic.List[string]
     foreach ($line in @($bom.results)) {
       if (-not $line.item -or -not $line.item.guid) { continue }
+      $attempted++
       $lineBody = [ordered]@{
         refDes   = $line.refDes
         quantity = $line.quantity
@@ -736,10 +744,16 @@ if ($doBom) {
         [void](Invoke-ArenaJson -Uri "$apiRoot/items/$newGuid/bom" -Method Post -Headers $headers -Body $lj)
         $n++
       } catch {
-        Write-Warning "BOM line add failed (refDes=$($line.refDes)): $($_.Exception.Message)"
+        $msg = "refDes=$($line.refDes): $($_.Exception.Message)"
+        [void]$failed.Add($msg)
+        Write-Warning "BOM line add failed ($msg)"
       }
     }
-    Write-Host ("  Added {0} BOM line(s)." -f $n)
+    Write-Host ("  Added {0} of {1} BOM line(s)." -f $n, $attempted)
+    if ($attempted -gt 0 -and $n -eq 0) {
+      throw ("BOM copy failed: none of the {0} source BOM line(s) could be added to the new item.{1}{2}" -f `
+        $attempted, [Environment]::NewLine, ($failed -join [Environment]::NewLine))
+    }
   } else {
     Write-Host '  (No BOM lines on source or not an assembly.)'
   }
@@ -779,5 +793,91 @@ if ($doFiles) {
 }
 
 Write-Host ''
-Write-Host 'Done. Duplicate item flow finished (untested — verify in Arena).' -ForegroundColor Green
+if ($BarePcbFollowUp) {
+  Write-Host 'Done. Bare PCB duplicate finished.' -ForegroundColor Green
+} else {
+  Write-Host 'Done. Primary duplicate finished.' -ForegroundColor Green
+}
+
+function Convert-PcbaTextToPcbBareText {
+  param([string]$Text)
+  if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
+  return ($Text -replace '(?i)PCBA', 'PCB')
+}
+
+$alsoBare = (-not $BarePcbFollowUp) -and ($AddBarePcbAlso -match '^(?i)yes|1|true|on$')
+if ($alsoBare) {
+  $helpers = Join-Path $scriptsDir 'AltiumRevisionHelpers.ps1'
+  if (-not (Test-Path -LiteralPath $helpers)) {
+    throw "Required script missing: $helpers"
+  }
+  . $helpers
+
+  $pcbaOld = $OldPartNumber.Trim()
+  $oldBareVariants = Get-BareBoardPartNumberVariants -PartNumber $pcbaOld
+  $newBareVariants = Get-BareBoardPartNumberVariants -PartNumber $newPn
+  $bareRev = Get-RevisionLetterOnly -RevisionText $(if ($NewItemRevision.Trim()) { $NewItemRevision.Trim() } else { 'A' })
+
+  $bareOld = $null
+  $bareNew = $null
+  foreach ($pair in @(
+      @{ Old = $oldBareVariants.Standard; New = $newBareVariants.Standard },
+      @{ Old = $oldBareVariants.Legacy;   New = $newBareVariants.Legacy }
+    )) {
+    $pnBareEnc = [Uri]::EscapeDataString($pair.Old)
+    $bareLookup = Invoke-ArenaJson -Uri "$apiRoot/items?number=$pnBareEnc&limit=1&responseview=full" -Headers $headers
+    if ($bareLookup.results -and $bareLookup.results.Count -gt 0) {
+      $bareOld = $pair.Old
+      $bareNew = $pair.New
+      break
+    }
+  }
+  if (-not $bareOld) {
+    throw (
+      "Bare PCB duplicate: no Arena item found for bare board part number '$($oldBareVariants.Standard)' " +
+      "or legacy '$($oldBareVariants.Legacy)' (mapped from PCBA '$pcbaOld')."
+    )
+  }
+
+  $bareItemName = Convert-PcbaTextToPcbBareText $ItemName.Trim()
+  $bareItemDesc = Convert-PcbaTextToPcbBareText $createDescription
+  if (-not $bareItemName) {
+    throw 'Bare PCB duplicate: PCBA item name is empty; cannot derive bare board name.'
+  }
+
+  Write-Host ''
+  Write-Host '=== Bare PCB duplicate (auto from PCBA) ===' -ForegroundColor Cyan
+  Write-Host ("  Source bare:  {0}" -f $bareOld)
+  Write-Host ("  New bare:     {0}" -f $bareNew)
+  Write-Host ("  Revision:     {0} (letter only)" -f $bareRev)
+  Write-Host ("  Item name:    {0}" -f $bareItemName)
+  if ($bareItemDesc -and $bareItemDesc -ne $bareItemName) {
+    Write-Host ("  Description:  {0}" -f $bareItemDesc)
+  }
+  Write-Host ''
+
+  & $PSCommandPath `
+    -OldPartNumber $bareOld `
+    -NewPartNumber $bareNew `
+    -ItemName $bareItemName `
+    -ItemDescription $bareItemDesc `
+    -CopyBom $CopyBom `
+    -CopyFiles $CopyFiles `
+    -SourceRevisionMode $SourceRevisionMode `
+    -SourceRevisionOverride $SourceRevisionOverride `
+    -NewItemRevision $bareRev `
+    -OwnerFullName $OwnerFullName `
+    -Mode Execute `
+    -AddBarePcbAlso 'no' `
+    -BarePcbFollowUp `
+    -Email $Email `
+    -WorkspaceId $WorkspaceId `
+    -BaseUrl $BaseUrl
+  if ($LASTEXITCODE -ne 0) {
+    throw "Bare PCB duplicate failed (exit $LASTEXITCODE)."
+  }
+}
+
+Write-Host ''
+Write-Host 'Done. Duplicate item flow finished.' -ForegroundColor Green
 exit 0

@@ -7,7 +7,11 @@
   2. Finds the newest template under the library folder whose file name (without extension) matches
      `WDTS - PCB Design Checklist vX.X` (version is dotted digits, e.g. v1.2 or v2.10.3).
      When multiple files match, the highest semantic version wins; ties break on last write time.
-  3. Copies that file into the main folder (overwrites if the same file name already exists).
+  3. Copies that file into the main folder as
+     `{template base name} {PCBA} Rev {revision}{ext}`
+     where PCBA is the canonical part number and revision comes from the production
+     folder / files (ResolveJson revLetter). If revision cannot be determined, uses Rev A.
+     Overwrites if that destination name already exists.
   4. Opens the copied file with the default application (Excel for .xlsx/.xlsm).
 
 .PARAMETER PartNumber
@@ -56,6 +60,21 @@ if (-not (Test-Path -LiteralPath $partDir -PathType Container)) {
 }
 Write-Host "  Main folder: $partDir"
 
+$pcba = ("$($resolved.canonical)").Trim()
+if ([string]::IsNullOrWhiteSpace($pcba)) {
+  # Fallback: strip optional folder suffix after a space (e.g. "272-10-001 BJ 5P").
+  $pcba = ($PartNumber.Trim() -split '\s+', 2)[0].Trim()
+}
+$revRaw = ("$($resolved.revLetter)").Trim()
+if ([string]::IsNullOrWhiteSpace($revRaw)) {
+  $revLabel = 'A'
+  Write-Host '  Revision: not detected from production folder/files; using Rev A'
+} else {
+  $revLabel = $revRaw.ToUpperInvariant()
+  Write-Host ("  Revision: Rev {0} (from production folder/files)" -f $revLabel)
+}
+Write-Host ("  PCBA: {0}" -f $pcba)
+
 Write-Host ''
 Write-Host "=== Finding newest checklist under library ==="
 $rxBase = [regex]'^(?i)WDTS - PCB Design Checklist v(?<ver>[\d.]+)$'
@@ -85,7 +104,8 @@ $chosen = $candidates |
 $src = $chosen.File
 Write-Host ("  Using: {0} (version label v{1}, last write {2})" -f $src.Name, $chosen.VerStr, $src.LastWriteTime)
 
-$destPath = Join-Path $partDir $src.Name
+$destName = '{0} {1} Rev {2}{3}' -f $src.BaseName, $pcba, $revLabel, $src.Extension
+$destPath = Join-Path $partDir $destName
 Write-Host ''
 Write-Host "=== Copying into part folder ==="
 Write-Host "  Destination: $destPath"

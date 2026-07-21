@@ -10,7 +10,7 @@
        recent released).
     3. For each BOM line, maps reference designators to Arena item description
        (description when set, else item name) and part number.
-    4. Compares each non-fiducial P&P row's Description (or Comment when Description
+    4. Compares each non-fiducial / non-test-pad P&P row's Description (or Comment when Description
        is empty) to the Arena text using the same spec-aware regex rules as
        Compare-ArenaAltiumBom / BOM export check (Bom-ArenaAltiumDescriptionChecks.ps1).
 
@@ -115,6 +115,7 @@ function Test-PickPlaceRowIsSkippableNonComponent {
   foreach ($k in @('Designator', 'Comment', 'Description', 'Footprint')) {
     $v = $Row[$k]
     if ($v -and ("$v" -match '(?i)fiducial')) { return $true }
+    if ($v -and ("$v" -match '(?i)test\s*pad')) { return $true }
     if ($v -and ("$v" -match '(?i)mounting\s*hole|mount\s*hole')) { return $true }
   }
   $des = if ($Row.ContainsKey('Designator')) { ("$($Row['Designator'])").Trim() } else { '' }
@@ -461,7 +462,7 @@ Write-ListSection -Title "PCB part(s) OK missing from P&P ($($pcbMissingOk.Count
 
 if ($skippedNonComponent -gt 0) {
   Write-Host ''
-  Write-Host ("Fiducial / mounting-hole rows skipped: {0}" -f $skippedNonComponent) -ForegroundColor DarkGray
+  Write-Host ("Fiducial / test pad / mounting-hole rows skipped: {0}" -f $skippedNonComponent) -ForegroundColor DarkGray
 }
 
 Write-Host ''

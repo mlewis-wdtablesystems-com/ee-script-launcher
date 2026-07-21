@@ -26,6 +26,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $scriptsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+. (Join-Path $scriptsDir 'LauncherNestedScriptHelpers.ps1')
 $openScript = Join-Path $scriptsDir 'Open-AltiumPartFolder.ps1'
 $syncScript = Join-Path $scriptsDir 'Sync-ArenaFabricationGerbers.ps1'
 foreach ($p in @($openScript, $syncScript)) {
@@ -51,11 +52,7 @@ if ($CreateZip) {
     '-Open', 'FabricationZip'
   )
   if ($ForceZipOverwrite) { $openArgs += '-ForceZipOverwrite' }
-  $fabOut = & powershell.exe @openArgs 2>&1
-  Write-Host (($fabOut | ForEach-Object { "$_" }) -join "`n")
-  if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-  }
+  Invoke-NestedLauncherPowerShell -ArgumentList $openArgs -StepLabel 'Check and Build Fabrication Zip' | Out-Null
 }
 
 if ($UploadToArena) {
@@ -68,10 +65,8 @@ if ($UploadToArena) {
   if ($ForceUpload) {
     $syncArgs += '-ForceUpload'
   }
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass @syncArgs
-  if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-  }
+  $syncInvokeArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass') + $syncArgs
+  Invoke-NestedLauncherPowerShell -ArgumentList $syncInvokeArgs -StepLabel 'Upload fabrication zip to Arena' | Out-Null
 }
 
 Write-Host ''

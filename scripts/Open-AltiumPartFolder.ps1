@@ -45,15 +45,17 @@
   PcbDoc — same folder resolution and Archive exclusion, but opens the newest *.PcbDoc instead.
   FabricationZip — go one level under the resolved Rev/Ver folder, locate the production document
   folder ("Production Document", "Project Outputs for *", or any direct child containing a "Gerber"
-  subfolder), inspect the Gerber folder for files sharing an extension (orange warning if any),
-  then zip "Gerber", "NC Drill", and "PFS" into "Fabrication PPP-YY-XXX Rev ?.zip" inside that
-  production document folder.
+  subfolder), inspect the Gerber folder for files sharing an extension and for Mechanical Layer
+  plots other than Layer 1 (*.GM2+; orange warnings if any), then zip "Gerber", "NC Drill", and
+  "PFS" into "Fabrication PPP-YY-XXX Rev ?.zip" inside that production document folder.
   GerberZip — same production-document resolution and folder checks as FabricationZip (Gerber and
   NC Drill only; PFS is not required or included), then zip "Gerber" and "NC Drill" into
   "Gerbers PPP-YY-XXX Rev ?.zip" inside that production document folder.
   PickPlaceZip — same production-document resolution, then zip the "Pick Place" folder into
   "Pick Place PPP-TT-XXX Rev ?.zip" inside the production document folder. Errors if the folder
-  contains more than one *.csv or more than one *.txt file (top-level).
+  contains more than one *.csv or more than one *.txt file (top-level). When -RevisionOverride
+  is set (e.g. D1 from the launcher), that value names the zip; Altium folder/PrjPcb revision is
+  used only for an optional letter mismatch check when detectable.
 
   PPP-YY-XXX maps TT→YY for the assembly→PCB part number scheme (TT=10→YY=20, TT=15→YY=25; other
   values pass through unchanged). The revision letter is read from the resolved folder name (Rev/Ver
@@ -79,7 +81,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Definition) 'AltiumRevisionHelpers.ps1')
+$scriptsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+. (Join-Path $scriptsDir 'AltiumRevisionHelpers.ps1')
+. (Join-Path $scriptsDir 'AltiumZipHelpers.ps1')
+. (Join-Path $scriptsDir 'ExplorerWindowHelpers.ps1')
 
 function Invoke-ZipOverwritePromptIfNeeded {
   param(
@@ -184,54 +189,6 @@ function Get-RevLetterFromName([string]$name) {
   return $null
 }
 
-function Bring-WindowToFront {
-  # Best-effort foregrounding of a window. We try AppActivate first (matches
-  # by title substring), then fall back to a Win32 SetForegroundWindow against
-  # the COM Shell.Application's Explorer window for the given path.
-  #
-  # Required because the launcher spawns this script through a headless Python
-  # subprocess. Windows' focus-stealing prevention then refuses to let any new
-  # GUI window owned by that process chain become foreground on its own.
-  param(
-    [string]$TitleHint,
-    [string]$ExplorerPath
-  )
-  Start-Sleep -Milliseconds 700  # let the OS create the window
-  try {
-    $wsh = New-Object -ComObject 'WScript.Shell'
-    if ($TitleHint -and $wsh.AppActivate($TitleHint)) { return }
-  } catch {}
-
-  if ([string]::IsNullOrWhiteSpace($ExplorerPath)) { return }
-
-  if (-not ('PInvokeWin' -as [Type])) {
-    Add-Type -Namespace 'Foreground' -Name 'PInvokeWin' -MemberDefinition @'
-      [System.Runtime.InteropServices.DllImport("user32.dll")]
-      public static extern bool SetForegroundWindow(System.IntPtr hwnd);
-      [System.Runtime.InteropServices.DllImport("user32.dll")]
-      public static extern bool ShowWindowAsync(System.IntPtr hwnd, int nCmdShow);
-'@ | Out-Null
-  }
-
-  try {
-    $target = $ExplorerPath.TrimEnd('\').ToLowerInvariant()
-    $shellApp = New-Object -ComObject Shell.Application
-    foreach ($w in $shellApp.Windows()) {
-      try {
-        $url = $w.LocationURL
-        if (-not $url) { continue }
-        $local = ([Uri]$url).LocalPath.TrimEnd('\').ToLowerInvariant()
-        if ($local -eq $target) {
-          $hwnd = [IntPtr]$w.HWND
-          [void][Foreground.PInvokeWin]::ShowWindowAsync($hwnd, 9)  # SW_RESTORE
-          [void][Foreground.PInvokeWin]::SetForegroundWindow($hwnd)
-          return
-        }
-      } catch {}
-    }
-  } catch {}
-}
-
 function Write-OrangeWarning([string]$message) {
   $supportsVt = $false
   try { $supportsVt = [bool]$Host.UI.SupportsVirtualTerminal } catch { $supportsVt = $false }
@@ -276,14 +233,38 @@ function Test-GerberFolderForDuplicateExtensions([string]$gerberDir) {
   foreach ($grp in $duplicateGroups) {
     $extLabel = if ([string]::IsNullOrEmpty($grp.Name)) { '(no extension)' } else { $grp.Name }
     $names = ($grp.Group | Sort-Object Name | ForEach-Object { $_.Name }) -join ', '
-    $null = $warnings.Add("WARNING: Multiple {0} files in Gerber folder: {1}" -f $extLabel, $names)
+    $null = $warnings.Add(('WARNING: Multiple {0} files in Gerber folder: {1}' -f $extLabel, $names))
   }
   return @($warnings)
 }
 
+function Test-GerberFolderForExtraMechanicalLayers([string]$gerberDir) {
+  # Altium plots Mechanical Layer N as *.GMn (e.g. .GM1, .GM2, .GM16).
+  # Only Mechanical Layer 1 is normally expected in fabrication Gerbers.
+  if (-not (Test-Path -LiteralPath $gerberDir -PathType Container)) { return @() }
+
+  $files = @(Get-ChildItem -LiteralPath $gerberDir -File -ErrorAction SilentlyContinue)
+  $extra = @()
+  foreach ($f in $files) {
+    $m = [regex]::Match($f.Extension, '^\.GM(\d+)$', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if (-not $m.Success) { continue }
+    $layerNum = [int]$m.Groups[1].Value
+    if ($layerNum -ne 1) {
+      $extra += [pscustomobject]@{ Layer = $layerNum; Name = $f.Name }
+    }
+  }
+  if ($extra.Count -eq 0) { return @() }
+
+  $names = ($extra | Sort-Object Layer, Name | ForEach-Object { $_.Name }) -join ', '
+  $layers = ($extra | Sort-Object Layer -Unique | ForEach-Object { $_.Layer }) -join ', '
+  return @(
+    ('WARNING: Gerber folder contains Mechanical Layer file(s) other than Layer 1 (layers {0}): {1}' -f $layers, $names)
+  )
+}
+
 function Test-FolderTimestampSpread {
   # All files inside $folder must have LastWriteTime within $maxSpreadMinutes
-  # of each other. Returns a single warning string if not, or $null if OK /
+  # of each other. Returns a single error string if not, or $null if OK /
   # not applicable (folder missing or <2 files).
   param(
     [string]$Folder,
@@ -293,10 +274,13 @@ function Test-FolderTimestampSpread {
   if (-not (Test-Path -LiteralPath $Folder -PathType Container)) { return $null }
   $files = @(Get-ChildItem -LiteralPath $Folder -File -ErrorAction SilentlyContinue)
   if ($files.Count -lt 2) { return $null }
-  $oldest = ($files | Sort-Object LastWriteTimeUtc | Select-Object -First 1)
   $newest = ($files | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
+  $stale = @($files | Where-Object {
+      ($newest.LastWriteTimeUtc - $_.LastWriteTimeUtc).TotalMinutes -gt $MaxSpreadMinutes
+    } | Sort-Object LastWriteTimeUtc)
+  if ($stale.Count -eq 0) { return $null }
+  $oldest = $stale[0]
   $spread = ($newest.LastWriteTimeUtc - $oldest.LastWriteTimeUtc)
-  if ($spread.TotalMinutes -le $MaxSpreadMinutes) { return $null }
   $spreadDisplay = if ($spread.TotalMinutes -lt 60) {
     "{0:N1} minutes" -f $spread.TotalMinutes
   } elseif ($spread.TotalHours -lt 48) {
@@ -304,9 +288,12 @@ function Test-FolderTimestampSpread {
   } else {
     "{0:N1} days" -f $spread.TotalDays
   }
-  return ("WARNING: $Label folder file timestamps span $spreadDisplay (limit $MaxSpreadMinutes min). " +
-    "Oldest: '{0}' @ {1:yyyy-MM-dd HH:mm}.  Newest: '{2}' @ {3:yyyy-MM-dd HH:mm}." -f `
-      $oldest.Name, $oldest.LastWriteTime, $newest.Name, $newest.LastWriteTime)
+  $staleList = ($stale | ForEach-Object {
+      ("''{0}'' @ {1:yyyy-MM-dd HH:mm}" -f $_.Name, $_.LastWriteTime)
+    }) -join '; '
+  return ("ERROR: $Label folder file timestamps span $spreadDisplay (limit $MaxSpreadMinutes min). " +
+    ('Newest: ''{0}'' @ {1:yyyy-MM-dd HH:mm}. ' -f $newest.Name, $newest.LastWriteTime) +
+    "Stale file(s) not from the same export (delete leftover orphans or re-run outputs): $staleList.")
 }
 
 function Invoke-FabricationFolderChecks {
@@ -315,7 +302,8 @@ function Invoke-FabricationFolderChecks {
   param(
     [string]$ProdDocDir,
     [int]$TimestampSpreadMinutes = 2,
-    [switch]$IncludePfsChecks
+    [switch]$IncludePfsChecks,
+    [switch]$AllowTwoNcDrillFiles
   )
   if (-not $PSBoundParameters.ContainsKey('IncludePfsChecks')) {
     $IncludePfsChecks = $true
@@ -361,15 +349,22 @@ function Invoke-FabricationFolderChecks {
     } else {
       "Gerber has $($gerberFiles.Count) file(s) (>10), minimum $ncDrillMin NC Drill file(s) required."
     }
-    $null = $errors.Add(
-      "ERROR: NC Drill folder must contain at least $ncDrillMin file(s) (found $($ncDrillFiles.Count): $listed). $gerberNote"
-    )
+    $ncDrillMsg = "NC Drill folder must contain at least $ncDrillMin file(s) (found $($ncDrillFiles.Count): $listed). $gerberNote"
+    if ($AllowTwoNcDrillFiles -and $ncDrillFiles.Count -eq 2) {
+      $null = $warnings.Add("WARNING: Only 2 NC Drill file(s) ($listed). $gerberNote Acceptable for zip build.")
+    }
+    else {
+      $null = $errors.Add("ERROR: $ncDrillMsg")
+    }
   }
 
   # 4. Gerber duplicate-extension warnings
   foreach ($w in Test-GerberFolderForDuplicateExtensions $gerberDir) { $null = $warnings.Add($w) }
 
-  # 5. Per-folder timestamp consistency warnings
+  # 4b. Extra mechanical layers (*.GM2, *.GM3, …) — warn; *.GM1 is OK
+  foreach ($w in Test-GerberFolderForExtraMechanicalLayers $gerberDir) { $null = $warnings.Add($w) }
+
+  # 5. Per-folder timestamp consistency (must be within TimestampSpreadMinutes)
   $timestampFolders = @(
     @{ Path = $gerberDir;  Label = 'Gerber'   }
     @{ Path = $ncDrillDir; Label = 'NC Drill' }
@@ -378,8 +373,8 @@ function Invoke-FabricationFolderChecks {
     $timestampFolders += @{ Path = $pfsDir; Label = 'PFS' }
   }
   foreach ($pair in $timestampFolders) {
-    $w = Test-FolderTimestampSpread -Folder $pair.Path -Label $pair.Label -MaxSpreadMinutes $TimestampSpreadMinutes
-    if ($w) { $null = $warnings.Add($w) }
+    $e = Test-FolderTimestampSpread -Folder $pair.Path -Label $pair.Label -MaxSpreadMinutes $TimestampSpreadMinutes
+    if ($e) { $null = $errors.Add($e) }
   }
 
   return @{ Errors = @($errors); Warnings = @($warnings) }
@@ -498,7 +493,7 @@ function Select-RevFolderWithProductionDoc {
   return (Get-LatestRevAmong2 $revs).Path
 }
 
-function Resolve-RevLetter([string]$targetDir, [object[]]$revRecords) {
+function Resolve-RevLetter([string]$targetDir, [object[]]$revRecords, [string]$DefaultLetter = '') {
   $revLetter = Get-RevLetterFromName (Split-Path -Leaf $targetDir)
   if (-not $revLetter -and $revRecords.Count -gt 0) {
     $latestRecRevLetter = $revRecords |
@@ -515,6 +510,15 @@ function Resolve-RevLetter([string]$targetDir, [object[]]$revRecords) {
     }
   }
   if (-not $revLetter) {
+    $default = ("$DefaultLetter").Trim()
+    if ($default) {
+      $revLetter = $default.ToUpperInvariant()
+      Write-Warning (
+        "Could not determine revision letter from folder name `"$(Split-Path -Leaf $targetDir)`" " +
+        "or any .PrjPcb file under it (excluding paths under `"Archive`"); assuming Rev $revLetter."
+      )
+      return $revLetter
+    }
     throw "Could not determine revision letter from folder name `"$(Split-Path -Leaf $targetDir)`" or any .PrjPcb file under it (excluding paths under `"Archive`")."
   }
   return $revLetter
@@ -635,8 +639,7 @@ if ($Open -eq 'Explorer') {
   else {
     Write-Host 'Opening (no Rev*/Ver* subfolders): part folder'
   }
-  Start-Process -FilePath 'explorer.exe' -ArgumentList $targetDir
-  Bring-WindowToFront -TitleHint (Split-Path -Leaf $targetDir) -ExplorerPath $targetDir
+  Start-ExplorerWindow -FolderPath $targetDir
   Write-Host "Done."
   exit 0
 }
@@ -648,8 +651,7 @@ if ($Open -eq 'ProductionExplorer') {
   }
   $prodDocDir = Resolve-ProductionDocFolder $prodWorkDir
   Write-Host "Opening production document folder: $prodDocDir"
-  Start-Process -FilePath 'explorer.exe' -ArgumentList $prodDocDir
-  Bring-WindowToFront -TitleHint (Split-Path -Leaf $prodDocDir) -ExplorerPath $prodDocDir
+  Start-ExplorerWindow -FolderPath $prodDocDir
   Write-Host "Done."
   exit 0
 }
@@ -670,7 +672,7 @@ if ($Open -eq 'PrjPcb' -or $Open -eq 'PcbDoc') {
   Start-Process -FilePath $picked.FullName
   # Altium owns the file association; try to bring its window forward
   # by matching the document filename (without extension) against the title bar.
-  Bring-WindowToFront -TitleHint $picked.BaseName
+  Show-AppWindowToFront -TitleHint $picked.BaseName
   Write-Host "Done."
   exit 0
 }
@@ -754,7 +756,15 @@ if ($Open -in @('FabricationZip', 'GerberZip', 'PickPlaceZip', 'CheckFabrication
 $prodDocDir = Resolve-ProductionDocFolder $prodWorkDir
 Write-Host "Production document folder: $prodDocDir"
 
-$revLetter = Resolve-RevLetter $prodWorkDir $revRecords
+$revLetter = $null
+if ($Open -ne 'PickPlaceZip' -or [string]::IsNullOrWhiteSpace($RevisionOverride)) {
+  if ($Open -in @('FabricationZip', 'GerberZip')) {
+    $revLetter = Resolve-RevLetter $prodWorkDir $revRecords -DefaultLetter 'A'
+  }
+  elseif ($Open -in @('PickPlaceZip', 'CheckFabrication')) {
+    $revLetter = Resolve-RevLetter $prodWorkDir $revRecords
+  }
+}
 
 if ($Open -eq 'PickPlaceZip') {
   $pickPlaceDir = Join-Path $prodDocDir 'Pick Place'
@@ -775,9 +785,15 @@ if ($Open -eq 'PickPlaceZip') {
     throw "More than one .txt file in Pick Place folder: $names"
   }
 
-  $zipRev = Resolve-PickPlaceZipRevisionLabel -AltiumRevision $revLetter -RevisionOverride $RevisionOverride
+  $altiumRevForZip = $revLetter
+  if (-not $altiumRevForZip -and -not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
+    try { $altiumRevForZip = Resolve-RevLetter $prodWorkDir $revRecords } catch { $altiumRevForZip = $null }
+  }
+  $zipRev = Resolve-PickPlaceZipRevisionLabel -AltiumRevision $altiumRevForZip -RevisionOverride $RevisionOverride
+  if ($altiumRevForZip) {
+    Write-Host "  Revision (Altium):          $altiumRevForZip"
+  }
   if (-not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
-    Write-Host "  Revision (Altium):          $revLetter"
     Write-Host "  Revision (zip name):      $zipRev"
   }
   $zipBase = "Pick Place $canonical Rev $zipRev"
@@ -785,14 +801,11 @@ if ($Open -eq 'PickPlaceZip') {
   Write-Host "Zip target: $zipPath"
 
   Invoke-ZipOverwritePromptIfNeeded -ZipPath $zipPath -ForceZipOverwrite:$ForceZipOverwrite
-  if (Test-Path -LiteralPath $zipPath) {
-    Remove-Item -LiteralPath $zipPath -Force
-  }
 
-  Compress-Archive -Path $pickPlaceDir -DestinationPath $zipPath -CompressionLevel Optimal -Force
+  New-AltiumFolderZip -SourceDirectory $pickPlaceDir -DestinationZipPath $zipPath
 
   Write-Host "Created: $zipPath"
-  Start-Process -FilePath 'explorer.exe' -ArgumentList "/select,`"$zipPath`""
+  Start-ExplorerWindow -SelectPath $zipPath
   exit 0
 }
 
@@ -833,7 +846,7 @@ if ($Open -eq 'GerberZip') {
   }
 
   $checkResult = Invoke-FabricationFolderChecks -ProdDocDir $prodDocDir `
-    -TimestampSpreadMinutes $TimestampSpreadMinutes -IncludePfsChecks:$false
+    -TimestampSpreadMinutes $TimestampSpreadMinutes -IncludePfsChecks:$false -AllowTwoNcDrillFiles
   Show-FabricationFolderCheckReport -ProdDocDir $prodDocDir -RevLetter $revLetter `
     -TimestampSpreadMinutes $TimestampSpreadMinutes -CheckResult $checkResult `
     -ReportTitle 'Gerber folder check'
@@ -854,7 +867,7 @@ if ($Open -eq 'GerberZip') {
 
   Write-Host "Created: $zipPath"
   Write-Host "Included: $($present | ForEach-Object { Split-Path -Leaf $_ })"
-  Start-Process -FilePath 'explorer.exe' -ArgumentList "/select,`"$zipPath`""
+  Start-ExplorerWindow -SelectPath $zipPath
   exit 0
 }
 
@@ -888,7 +901,7 @@ if ($present.Count -eq 0) {
 }
 
 $checkResult = Invoke-FabricationFolderChecks -ProdDocDir $prodDocDir `
-  -TimestampSpreadMinutes $TimestampSpreadMinutes
+  -TimestampSpreadMinutes $TimestampSpreadMinutes -AllowTwoNcDrillFiles
 Show-FabricationFolderCheckReport -ProdDocDir $prodDocDir -RevLetter $revLetter `
   -TimestampSpreadMinutes $TimestampSpreadMinutes -CheckResult $checkResult
 if ($checkResult.Errors.Count -gt 0) {
@@ -908,4 +921,4 @@ Compress-Archive -Path $present -DestinationPath $zipPath -CompressionLevel Opti
 
 Write-Host "Created: $zipPath"
 Write-Host "Included: $($present | ForEach-Object { Split-Path -Leaf $_ })"
-Start-Process -FilePath 'explorer.exe' -ArgumentList "/select,`"$zipPath`""
+Start-ExplorerWindow -SelectPath $zipPath

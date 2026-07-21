@@ -143,7 +143,8 @@ try {
     '-ArenaCsv', $tempCsv,
     '-AltiumXlsx', $pickedXlsx.FullName,
     '-Sheet', $Sheet,
-    '-PjmSpecificationSheet', '2'
+    '-PjmSpecificationSheet', '2',
+    '-AssemblyPartNumber', $PartNumber.Trim()
   )
   & powershell.exe -NoProfile -ExecutionPolicy Bypass @compareArgs
   $compareExit = $LASTEXITCODE

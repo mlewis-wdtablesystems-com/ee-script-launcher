@@ -131,14 +131,18 @@ $barePn = $resolved.pcbPartNumber
 if ([string]::IsNullOrWhiteSpace($barePn)) {
   throw 'ResolveJson did not return pcbPartNumber.'
 }
-$revLetter = $resolved.revLetter
-if ([string]::IsNullOrWhiteSpace($revLetter)) {
-  throw 'ResolveJson did not return revLetter; cannot name fabrication zip.'
-}
 
 Write-Host "  Production document folder: $prodDocDir"
 Write-Host "  Bare-board part (Arena):    $barePn"
-Write-Host "  Revision (from Altium):     $revLetter"
+
+$revLetter = $resolved.revLetter
+if ([string]::IsNullOrWhiteSpace($revLetter)) {
+  $revLetter = 'A'
+  Write-Host '  Revision (from Altium):     (not detected; assuming Rev A)' -ForegroundColor DarkYellow
+}
+else {
+  Write-Host "  Revision (from Altium):     $revLetter"
+}
 
 $revLetterOnly = ($revLetter -replace '\d+$', '')
 if ([string]::IsNullOrWhiteSpace($revLetterOnly)) { $revLetterOnly = $revLetter }
