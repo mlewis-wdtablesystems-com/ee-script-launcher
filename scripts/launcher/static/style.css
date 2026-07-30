@@ -1,15 +1,17 @@
 :root {
-  --bg: #0f1115;
-  --surface: #161a21;
-  --surface-2: #1c2129;
-  --border: #2a313c;
-  --text: #e6e8ec;
-  --text-secondary: #9aa3b2;
-  --accent: #4f8cff;
-  --accent-hover: #6aa0ff;
-  --ok: #5ec27a;
-  --warn: #e0b34d;
-  --err: #e06d6d;
+  /* WDTS brand: white / black / deep burgundy */
+  --bg: #f4f4f5;
+  --surface: #ffffff;
+  --surface-2: #ececee;
+  --border: #c8c8cd;
+  --text: #111111;
+  --text-secondary: #4a4a4f;
+  --accent: #9a1e36;
+  --accent-hover: #b52842;
+  --accent-muted: rgba(154, 30, 54, 0.12);
+  --ok: #1f7a45;
+  --warn: #a66a00;
+  --err: #9a1e36;
   --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
   --radius: 6px;
   --topbar-h: 52px;
@@ -49,11 +51,11 @@ body {
   top: 0;
   z-index: 100;
   background: var(--surface);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
 }
 
-body[data-workspace="real"]     { background: #0d2317; }
-body[data-workspace="training"] { background: #2e1a05; }
+body[data-workspace="real"]     { background: #eef5f0; }
+body[data-workspace="training"] { background: #f7f1e8; }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { color: var(--accent-hover); text-decoration: underline; }
@@ -74,8 +76,9 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
 .topbar h1 {
   margin: 0;
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.2px;
+  color: var(--accent);
 }
 
 .ws {
@@ -134,9 +137,9 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   color: var(--text-secondary);
 }
 
-.pill.ok { color: var(--ok); border-color: rgba(94,194,122,0.3); }
-.pill.warn { color: var(--warn); border-color: rgba(224,179,77,0.3); }
-.pill.bg { color: var(--accent); border-color: rgba(79,140,255,0.3); }
+.pill.ok { color: var(--ok); border-color: rgba(31, 122, 69, 0.35); }
+.pill.warn { color: var(--warn); border-color: rgba(166, 106, 0, 0.35); }
+.pill.bg { color: var(--accent); border-color: rgba(154, 30, 54, 0.35); }
 
 .frozen-pane {
   flex: 0 0 auto;
@@ -472,7 +475,7 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   font-size: 12px;
   font-weight: 400;
   line-height: 1.45;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   white-space: normal;
 }
 
@@ -776,12 +779,12 @@ button.run.discover-prefill {
 
 .zip-overwrite-prompt {
   border: 1px solid var(--warn);
-  background: rgba(224, 179, 77, 0.08);
+  background: rgba(166, 106, 0, 0.08);
 }
 
 .confirm-upload-prompt {
   border: 1px solid var(--accent);
-  background: rgba(79, 140, 255, 0.08);
+  background: var(--accent-muted);
 }
 
 .duplicate-upload-msg,
