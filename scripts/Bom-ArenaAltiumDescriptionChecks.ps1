@@ -39,6 +39,20 @@ function Test-BomPartNumberDescriptionCheckBypassed([string]$pn) {
   return $script:BomArenaAltiumDescriptionBypassPartNumbers.Contains($key)
 }
 
+function Test-BomDescriptionPairCheckBypassed([string]$arenaDesc, [string]$altiumDesc) {
+  # Known legacy Arena vs Altium/P&P wording pairs (no shared part-number bypass).
+  $a = Normalize-BomDescriptionText $arenaDesc
+  $b = Normalize-BomDescriptionText $altiumDesc
+  if (-not $a -or -not $b) { return $false }
+
+  # MAA Daughter Board PCB Assembly (P&P) vs AT-MUX DAUGHTER BOARD WITH STANDARD SIZE HEADER PINS (Arena)
+  $aIsMaa = [bool]($a -match '(?i)\bmaa\b' -and $a -match '(?i)daughter\s+board')
+  $bIsMaa = [bool]($b -match '(?i)\bmaa\b' -and $b -match '(?i)daughter\s+board')
+  $aIsAtMux = [bool]($a -match '(?i)\bat[\s\-]?mux\b' -and $a -match '(?i)daughter\s+board')
+  $bIsAtMux = [bool]($b -match '(?i)\bat[\s\-]?mux\b' -and $b -match '(?i)daughter\s+board')
+  return (($aIsMaa -and $bIsAtMux) -or ($bIsMaa -and $aIsAtMux))
+}
+
 function Get-VoltageTokens([string]$s) {
   if ([string]::IsNullOrWhiteSpace($s)) { return @() }
   $matches = [regex]::Matches($s, '(?i)(\d+(?:\.\d+)?)\s*v(?:dc|ac)?\b')
@@ -301,6 +315,9 @@ function Test-BomDescriptionsCompatible {
   }
 
   if ($PartNumber -and (Test-BomPartNumberDescriptionCheckBypassed $PartNumber)) {
+    return @{ Ok = $true; Message = '' }
+  }
+  if (Test-BomDescriptionPairCheckBypassed -arenaDesc $a -altiumDesc $b) {
     return @{ Ok = $true; Message = '' }
   }
 
