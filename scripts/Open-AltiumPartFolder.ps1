@@ -869,6 +869,29 @@ if ($Open -eq 'PickPlaceZip') {
   if (-not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
     Write-Host "  Revision (zip name):      $zipRev"
   }
+
+  # If P&P source files are named only as a part number (e.g. 239-10-001.csv),
+  # rename to "<PN> Pick and Place Rev <rev>" before zipping.
+  $ppRenameTargets = @($csvFiles + $txtFiles | Where-Object {
+      $_.BaseName -match '^\d{3}-\d{2}-\d{3}$'
+    })
+  foreach ($f in $ppRenameTargets) {
+    $pnForName = $f.BaseName
+    $newName = '{0} Pick and Place Rev {1}{2}' -f $pnForName, $zipRev, $f.Extension
+    $dest = Join-Path $f.DirectoryName $newName
+    if (
+      (Test-Path -LiteralPath $dest) -and
+      -not [string]::Equals($f.FullName, $dest, [StringComparison]::OrdinalIgnoreCase)
+    ) {
+      throw (
+        "Cannot rename Pick Place file from '$($f.Name)' to '$newName': " +
+        "destination already exists at `"$dest`"."
+      )
+    }
+    Write-Host ("  Renaming Pick Place file: '{0}' -> '{1}'" -f $f.Name, $newName)
+    Rename-Item -LiteralPath $f.FullName -NewName $newName -Force
+  }
+
   $zipBase = "Pick Place $canonical Rev $zipRev"
   $zipPath = Join-Path $prodDocDir ($zipBase + '.zip')
   Write-Host "Zip target: $zipPath"
