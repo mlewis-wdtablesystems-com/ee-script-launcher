@@ -57,9 +57,11 @@
   "Gerbers PPP-YY-XXX Rev ?.zip" inside that production document folder.
   PickPlaceZip — same production-document resolution, then zip the "Pick Place" folder into
   "Pick Place PPP-TT-XXX Rev ?.zip" inside the production document folder. Errors if the folder
-  contains more than one *.csv or more than one *.txt file (top-level). When -RevisionOverride
-  is set (e.g. D1 from the launcher), that value names the zip; Altium folder/PrjPcb revision is
-  used only for an optional letter mismatch check when detectable.
+  contains more than one *.csv or more than one *.txt file (top-level). Source .csv/.txt files
+  named only as a part number (e.g. 239-10-001.csv) are renamed to
+  "<PN> Pick and Place Rev <rev>" before zipping. When -RevisionOverride is set (e.g. D1 from
+  the launcher), that value names the zip; Altium folder/PrjPcb revision is used only for an
+  optional letter mismatch check when detectable.
 
   PPP-YY-XXX maps TT→YY for the assembly→PCB part number scheme (TT=10→YY=20, TT=15→YY=25; other
   values pass through unchanged). The revision letter is read from the resolved folder name (Rev/Ver
