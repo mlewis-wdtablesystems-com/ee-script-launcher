@@ -1481,7 +1481,8 @@ FUNCTIONS: list[FunctionSpec] = [
         title="Order boards from Simon",
         description=(
             "Draft an HTML Outlook email to Simon Graham for the bare-board part number "
-            "(Fabrication and Gerber zips plus PFS pdf; builds zips first if missing). "
+            "(Fabrication and Gerber zips, PFS pdf, and schematic pdf beside the .PrjPcb "
+            "or titled 'Schecmatics of …' under a PDF folder; builds zips first if missing). "
             "Opens in New Outlook (olk.exe) when Classic COM is unavailable."
         ),
         fields=[

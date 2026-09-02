@@ -8,9 +8,12 @@
        Fabrication <PPP-20/25-YYY> Rev <letter>.zip
        Gerbers <PPP-20/25-YYY> Rev <letter>.zip  (revision taken from the Fabrication zip name)
   3. Attaches the single .pdf from the production folder's PFS subfolder.
-  4. Opens a draft Outlook message to sgraham@wdtablesystems.com
+  4. Attaches the schematic PDF from the main design folder: either the PDF next to the
+     newest *.PrjPcb (same base name, excluding Archive), or a PDF under a "PDF" subfolder
+     titled "Schecmatics of ..." / "Schematics of ...".
+  5. Opens a draft Outlook message to sgraham@wdtablesystems.com
      (CC: bthakkar@wdtablesystems.com, rohit.maurya@wdtablesystems.com,
-      gahamad@wdtablesystems.com).
+      gahamad@wdtablesystems.com, sks@wdtablesystems.com).
 
   Uses Classic Outlook COM when available. When New Outlook is running (no COM), builds an
   .eml draft and opens it with olk.exe so the message appears in your current Outlook app.
@@ -102,16 +105,13 @@ function New-OrderBoardBodyLines {
     [string]$UrgencyText
   )
   $partRev = if ($Revision) { "$PcbPartNumber Rev $Revision" } else { $PcbPartNumber }
-  $orderLine = if ($Description) {
-    "Can you please order $partRev. $Description"
-  }
-  else {
-    "Can you please order $partRev."
-  }
   $lines = New-Object System.Collections.Generic.List[string]
   [void]$lines.Add('Hi Simon,')
   [void]$lines.Add('')
-  [void]$lines.Add($orderLine)
+  [void]$lines.Add("Can you please order $partRev.")
+  if ($Description) {
+    [void]$lines.Add($Description)
+  }
   [void]$lines.Add("Quantity = $Quantity")
   if ($UrgencyText) { [void]$lines.Add($UrgencyText) }
   [void]$lines.Add('')
@@ -276,6 +276,54 @@ function Ensure-FabricationZipForOrderBoard {
   }
   Write-Host "  Created: $($found.FullName)"
   return $found.FullName
+}
+
+function Get-SchematicPdfBesidePrjPcb {
+  param([string]$SearchRoot)
+  if ([string]::IsNullOrWhiteSpace($SearchRoot) -or -not (Test-Path -LiteralPath $SearchRoot -PathType Container)) {
+    throw "Design folder not found for schematic PDF: $SearchRoot"
+  }
+
+  $allPrj = @(Get-ChildItem -LiteralPath $SearchRoot -Recurse -File -Filter '*.PrjPcb' -ErrorAction SilentlyContinue |
+    Where-Object {
+      -not (($_.FullName -split '[\\/]') -contains 'Archive')
+    })
+  if ($allPrj.Count -eq 0) {
+    throw "No .PrjPcb file found under `"$SearchRoot`" (paths under an `"Archive`" folder are ignored)."
+  }
+  $prj = $allPrj | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+  $prjDir = $prj.DirectoryName
+
+  # 1) Same base name as .PrjPcb, beside the project file
+  $beside = @(Get-ChildItem -LiteralPath $prjDir -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -ieq '.pdf' -and $_.BaseName -ieq $prj.BaseName })
+  if ($beside.Count -gt 0) {
+    return ($beside | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).FullName
+  }
+
+  # 2) PDF subfolder: "Schecmatics of ..." (common typo) or "Schematics of ..."
+  $pdfDirs = @(
+    (Join-Path $prjDir 'PDF')
+    (Join-Path $SearchRoot 'PDF')
+  ) | Select-Object -Unique
+  $titleHits = @()
+  foreach ($pdfDir in $pdfDirs) {
+    if (-not (Test-Path -LiteralPath $pdfDir -PathType Container)) { continue }
+    $titleHits += @(Get-ChildItem -LiteralPath $pdfDir -File -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.Extension -ieq '.pdf' -and
+        ($_.BaseName -match '(?i)^Schec?matics\s+of\b')
+      })
+  }
+  if ($titleHits.Count -gt 0) {
+    return ($titleHits | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).FullName
+  }
+
+  $looked = @(
+    "`"$($prj.BaseName).pdf`" beside `"$prjDir`""
+    '"Schecmatics of …" / "Schematics of …" under a PDF subfolder'
+  ) -join '; '
+  throw "Schematic PDF not found. Looked for: $looked."
 }
 
 function Get-PfsPdfPath {
@@ -498,6 +546,13 @@ $pcbPart = $resolved.pcbPartNumber
 if ([string]::IsNullOrWhiteSpace($pcbPart)) {
   throw 'ResolveJson did not return pcbPartNumber.'
 }
+$designDir = $resolved.targetDir
+if ([string]::IsNullOrWhiteSpace($designDir)) {
+  $designDir = $resolved.partDir
+}
+if ([string]::IsNullOrWhiteSpace($designDir)) {
+  throw 'ResolveJson did not return targetDir or partDir (needed for schematic PDF).'
+}
 
 Write-Host ''
 Write-Host '=== Attachments ==='
@@ -515,17 +570,21 @@ if ([string]::IsNullOrWhiteSpace($revLetterOnly)) { $revLetterOnly = $revFromFab
 
 $gerberZip = Join-Path $prodDocDir ("Gerbers $pcbPart Rev $revLetterOnly.zip")
 $pfsPdf = Get-PfsPdfPath -ProdDocDir $prodDocDir
+$schematicPdf = Get-SchematicPdfBesidePrjPcb -SearchRoot $designDir
 
 Write-Host "  Production document folder: $prodDocDir"
+Write-Host "  Design folder (schematic):  $designDir"
 Write-Host "  Lookup part (Altium):       $pn"
 Write-Host "  Bare-board part (email):    $pcbPart"
 Write-Host "  Revision (from Fabrication zip): Rev $revLetterOnly"
 Write-Host "  Fabrication zip:            $fabricationZip"
 Write-Host "  Gerber zip:                 $gerberZip"
 Write-Host "  PFS pdf:                    $pfsPdf"
+Write-Host "  Schematic pdf:              $schematicPdf"
 
 Ensure-AltiumZip -PartLookup $pn -OpenMode GerberZip -ZipPath $gerberZip -Label 'Gerber zip'
 Write-Host "  Using PFS pdf: $pfsPdf"
+Write-Host "  Using schematic pdf: $schematicPdf"
 
 $bodyLines = New-OrderBoardBodyLines `
   -PcbPartNumber $pcbPart `
@@ -537,9 +596,9 @@ $htmlBody = ConvertTo-OrderBoardHtmlBody -Lines $bodyLines
 
 Open-OrderBoardOutlookDraft `
   -To 'sgraham@wdtablesystems.com' `
-  -Cc 'bthakkar@wdtablesystems.com; rohit.maurya@wdtablesystems.com; gahamad@wdtablesystems.com' `
+  -Cc 'bthakkar@wdtablesystems.com; rohit.maurya@wdtablesystems.com; gahamad@wdtablesystems.com; sks@wdtablesystems.com' `
   -Subject "Order $pcbPart Rev $revLetterOnly" `
   -HtmlBody $htmlBody `
-  -AttachmentPaths @($fabricationZip, $gerberZip, $pfsPdf)
+  -AttachmentPaths @($fabricationZip, $gerberZip, $pfsPdf, $schematicPdf)
 
 exit 0
