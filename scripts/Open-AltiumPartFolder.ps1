@@ -5,9 +5,12 @@
   revision subfolder when present (Rev A, Rev B, Ver …), then opens Explorer or the newest *.PrjPcb in Altium.
 
 .DESCRIPTION
-  Searches under OneDrive "23. Altium" for directories whose name equals PPP-XX-XXX or whose
-  name begins with PPP-XX-XXX followed by a space (e.g. "272-10-001 BJ 5P ..."). You can pass:
-    • PPP-XX-XXX only — first matching folder wins when multiple suffix variants exist (tie: newest mtime)
+  Searches under the Walker Digital Table Systems "23. Altium" root for directories whose
+  name equals PPP-XX-XXX or whose name begins with PPP-XX-XXX followed by a space,
+  underscore, or hyphen (e.g. "272-10-001 BJ 5P ...", "251-15-001_Ver A 20260716",
+  "258-10-001-ASY 1D Cage ANT"). A trailing date after Rev/Ver is allowed. You can pass:
+    • PPP-XX-XXX only — when multiple matching folders exist, pick the one with the newest
+      *.PcbDoc inside (excluding Archive); if none have a PCB, fall back to folder mtime
     • PPP-XX-XXX plus a suffix after a space — if that exact folder name exists under a parent, it wins
 
   With -Open Explorer (default), opens that folder (or the latest Rev / Ver subfolder) in Explorer.
@@ -45,8 +48,9 @@
   PcbDoc — same folder resolution and Archive exclusion, but opens the newest *.PcbDoc instead.
   FabricationZip — go one level under the resolved Rev/Ver folder, locate the production document
   folder ("Production Document", "Project Outputs for *", or any direct child containing a "Gerber"
-  subfolder), inspect the Gerber folder for files sharing an extension and for Mechanical Layer
-  plots other than Layer 1 (*.GM2+; orange warnings if any), then zip "Gerber", "NC Drill", and
+  subfolder), inspect the Gerber folder for files sharing an extension, for Mechanical Layer
+  plots other than Layer 1 (*.GM2+; orange warnings if any), and for missing required layer
+  extensions (GM, GM1, GTP, GTL, GTS; orange warnings if any), then zip "Gerber", "NC Drill", and
   "PFS" into "Fabrication PPP-YY-XXX Rev ?.zip" inside that production document folder.
   GerberZip — same production-document resolution and folder checks as FabricationZip (Gerber and
   NC Drill only; PFS is not required or included), then zip "Gerber" and "NC Drill" into
@@ -62,7 +66,8 @@
   suffix) or, as a fallback, from any *.PrjPcb file name in the resolved folder.
 
 .PARAMETER Root
-  Root directory containing Altium project folders.
+  Root directory containing Altium project folders. Default:
+  C:\Users\mlewis\Walker Digital Table Systems\WTDS-RDAustralia - Documents\23. Altium
 #>
 param(
   [Parameter(Mandatory = $true)]
@@ -73,7 +78,7 @@ param(
   [Parameter(Mandatory = $false)]
   [int]$TimestampSpreadMinutes = 2,
   [Parameter(Mandatory = $false)]
-  [string]$Root = 'C:\Users\mlewis\OneDrive - Walker Digital\WTDS-RDAustralia - Documents\23. Altium',
+  [string]$Root = 'C:\Users\mlewis\Walker Digital Table Systems\WTDS-RDAustralia - Documents\23. Altium',
   [Parameter(Mandatory = $false)]
   [switch]$ForceZipOverwrite,
   [Parameter(Mandatory = $false)]
@@ -85,6 +90,18 @@ $scriptsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 . (Join-Path $scriptsDir 'AltiumRevisionHelpers.ps1')
 . (Join-Path $scriptsDir 'AltiumZipHelpers.ps1')
 . (Join-Path $scriptsDir 'ExplorerWindowHelpers.ps1')
+
+function Get-AltiumSearchRoots([string]$RootParam) {
+  $r = if ([string]::IsNullOrWhiteSpace($RootParam)) {
+    'C:\Users\mlewis\Walker Digital Table Systems\WTDS-RDAustralia - Documents\23. Altium'
+  } else {
+    $RootParam.Trim()
+  }
+  if (-not (Test-Path -LiteralPath $r)) {
+    throw "Altium root folder not found: $r"
+  }
+  return @((Resolve-Path -LiteralPath $r).Path)
+}
 
 function Invoke-ZipOverwritePromptIfNeeded {
   param(
@@ -120,7 +137,9 @@ function Split-AltiumPartArg([string]$raw) {
 }
 
 function Test-PartFolderTitleMatch([string]$dirName, [string]$canonical) {
-  ($dirName -eq $canonical) -or ($dirName -match ('^' + [regex]::Escape($canonical) + '(\s+|$)'))
+  # Exact name, or canonical then space/underscore/hyphen + rest
+  # (e.g. "251-15-001 BJ 5P", "251-15-001_Ver A 20260716", "258-10-001-ASY 1D Cage ANT").
+  ($dirName -eq $canonical) -or ($dirName -match ('^' + [regex]::Escape($canonical) + '([\s_\-]|$)'))
 }
 
 function Add-PathToList([System.Collections.Generic.List[string]]$list, [string]$candidatePath) {
@@ -163,13 +182,14 @@ function Parse-RevSuffix([string]$dirName) {
   if ($dirName -imatch '^\s*Project Outputs for\s' -or $dirName -ilike 'Production Document*') {
     return $null
   }
-  # Accept any folder name whose tail looks like a rev tag:
+  # Accept any folder name that contains a rev tag:
   #   "Ver A", "Rev C1", "Revision B", "VerB2",
-  #   "Some Product Rev A", "Daughter Board Ver C1", etc.
+  #   "Some Product Rev A", "Daughter Board Ver C1",
+  #   "251-15-001_Ver A 20260716" (underscore before Ver; optional date/trailing text).
   # The rev keyword must be at the start OR preceded by whitespace/_/-,
-  # and the alphanumeric suffix (letters then optional digits) must sit at
-  # the end of the folder name.
-  if ($dirName -match '(?i)(?:^|[\s_\-])(?:Rev(?:ision)?|Ver\.?)\s*[:\s_\-]*(?<suffix>[A-Z]+\d*)\s*$') {
+  # and the alphanumeric suffix (letters then optional digits) may be followed
+  # by more text (e.g. a date).
+  if ($dirName -match '(?i)(?:^|[\s_\-])(?:Rev(?:ision)?|Ver\.?)\s*[:\s_\-]*(?<suffix>[A-Z]+\d*)(?:\b|_|$)') {
     return ($matches['suffix'].Trim().ToUpper())
   }
   return $null
@@ -259,6 +279,29 @@ function Test-GerberFolderForExtraMechanicalLayers([string]$gerberDir) {
   $layers = ($extra | Sort-Object Layer -Unique | ForEach-Object { $_.Layer }) -join ', '
   return @(
     ('WARNING: Gerber folder contains Mechanical Layer file(s) other than Layer 1 (layers {0}): {1}' -f $layers, $names)
+  )
+}
+
+function Test-GerberFolderForRequiredExtensions([string]$gerberDir) {
+  # Warn when expected copper/mask/paste/mechanical layer extensions are absent.
+  $required = @('GM', 'GM1', 'GTP', 'GTL', 'GTS')
+  if (-not (Test-Path -LiteralPath $gerberDir -PathType Container)) {
+    return @(
+      ('WARNING: Gerber folder missing required file extension(s): {0} (Gerber folder not found).' -f ($required -join ', '))
+    )
+  }
+
+  $present = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::OrdinalIgnoreCase)
+  foreach ($f in @(Get-ChildItem -LiteralPath $gerberDir -File -ErrorAction SilentlyContinue)) {
+    $ext = $f.Extension
+    if ([string]::IsNullOrEmpty($ext)) { continue }
+    [void]$present.Add($ext.TrimStart('.'))
+  }
+
+  $missing = @($required | Where-Object { -not $present.Contains($_) })
+  if ($missing.Count -eq 0) { return @() }
+  return @(
+    ('WARNING: Gerber folder missing required file extension(s): {0}.' -f ($missing -join ', '))
   )
 }
 
@@ -363,6 +406,9 @@ function Invoke-FabricationFolderChecks {
 
   # 4b. Extra mechanical layers (*.GM2, *.GM3, …) — warn; *.GM1 is OK
   foreach ($w in Test-GerberFolderForExtraMechanicalLayers $gerberDir) { $null = $warnings.Add($w) }
+
+  # 4c. Required layer extensions (warn if missing)
+  foreach ($w in Test-GerberFolderForRequiredExtensions $gerberDir) { $null = $warnings.Add($w) }
 
   # 5. Per-folder timestamp consistency (must be within TimestampSpreadMinutes)
   $timestampFolders = @(
@@ -539,6 +585,31 @@ function GetItemMtimeUtc([string]$p) {
   try { return (Get-Item -LiteralPath $p).LastWriteTimeUtc } catch { return [datetime]::MinValue }
 }
 
+function Get-NewestPcbDocMtimeUtc([string]$folderPath) {
+  # Prefer the newest *.PcbDoc under the folder (excluding Archive).
+  # Falls back to folder mtime when no PCB is present.
+  $pcbs = @(Get-AltiumPcbDocFilesExcludingArchive $folderPath)
+  if ($pcbs.Count -gt 0) {
+    $newest = $pcbs | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    return $newest.LastWriteTimeUtc
+  }
+  return (GetItemMtimeUtc $folderPath)
+}
+
+function Select-BestPartFolder([string[]]$CandidatePaths) {
+  $ranked = @(
+    $CandidatePaths | ForEach-Object {
+      [PSCustomObject]@{
+        Path  = $_
+        PcbMt = (Get-NewestPcbDocMtimeUtc $_)
+        DirMt = (GetItemMtimeUtc $_)
+      }
+    } | Sort-Object @{ Expression = 'PcbMt'; Descending = $true }, @{ Expression = 'DirMt'; Descending = $true }
+  )
+  if ($ranked.Count -eq 0) { return $null }
+  return $ranked[0].Path
+}
+
 function Get-LatestRevAmong2([object[]]$records) {
   # Wrap so a single sorted rev is still an array (.Count works); bare PSCustomObject does not.
   $sorted = @(Get-RevsSortedNewestFirst $records)
@@ -549,17 +620,17 @@ function Get-LatestRevAmong2([object[]]$records) {
 function Get-RevsSortedNewestFirst([object[]]$records) {
   # Sort rev records (objects with .Path, .Name, .Suffix) newest-first.
   # Numeric suffixes (e.g. "1", "2") win over text ones (e.g. "A", "B", "C1");
-  # within each bucket, sort by suffix descending then by folder mtime desc.
+  # within each bucket, sort by suffix descending then by newest .PcbDoc mtime desc.
   if (-not $records -or $records.Count -eq 0) { return @() }
   $numeric = @()
   $text = @()
   foreach ($r in $records) {
     $s = $r.Suffix
     if ($s -match '^(\d+)$') {
-      $numeric += [PSCustomObject]@{ Rec = $r; N = [decimal]$matches[1]; Mtime = (GetItemMtimeUtc $r.Path) }
+      $numeric += [PSCustomObject]@{ Rec = $r; N = [decimal]$matches[1]; Mtime = (Get-NewestPcbDocMtimeUtc $r.Path) }
     }
     else {
-      $text += [PSCustomObject]@{ Rec = $r; S = $s; Mtime = (GetItemMtimeUtc $r.Path) }
+      $text += [PSCustomObject]@{ Rec = $r; S = $s; Mtime = (Get-NewestPcbDocMtimeUtc $r.Path) }
     }
   }
   $sortedNumeric = @()
@@ -577,26 +648,25 @@ $parsed = Split-AltiumPartArg $PartNumber
 $canonical = $parsed.Canonical
 $tail = $parsed.NameTail
 
-if (-not (Test-Path -LiteralPath $Root)) {
-  throw "Altium root folder not found: $Root"
-}
-
+$searchRoots = @(Get-AltiumSearchRoots $Root)
 $pppSegment = $canonical.Split('-')[0]
 
 $candidates = New-Object System.Collections.Generic.List[string]
 
-# Directly under root
-Find-PartFoldersUnderParent -ParentDir $Root -Canonical $canonical -OptionalNameTail $tail -OutCandidates $candidates
+foreach ($searchRoot in $searchRoots) {
+  # Directly under root
+  Find-PartFoldersUnderParent -ParentDir $searchRoot -Canonical $canonical -OptionalNameTail $tail -OutCandidates $candidates
 
-# Under PPP <part>
-$pppJoin = Join-Path $Root $pppSegment
-Find-PartFoldersUnderParent -ParentDir $pppJoin -Canonical $canonical -OptionalNameTail $tail -OutCandidates $candidates
+  # Under PPP <part> (e.g. ...\23. Altium\297\297-10-001)
+  $pppJoin = Join-Path $searchRoot $pppSegment
+  Find-PartFoldersUnderParent -ParentDir $pppJoin -Canonical $canonical -OptionalNameTail $tail -OutCandidates $candidates
 
-# Any other top-level folder that might wrap the part folder
-foreach ($top in Get-ChildItem -LiteralPath $Root -Directory -ErrorAction SilentlyContinue) {
-  if (Test-PartFolderTitleMatch $top.Name $canonical) { continue }
+  # Any other top-level folder that might wrap the part folder
+  foreach ($top in Get-ChildItem -LiteralPath $searchRoot -Directory -ErrorAction SilentlyContinue) {
+    if (Test-PartFolderTitleMatch $top.Name $canonical) { continue }
 
-  Find-PartFoldersUnderParent -ParentDir $top.FullName -Canonical $canonical -OptionalNameTail $tail -OutCandidates $candidates
+    Find-PartFoldersUnderParent -ParentDir $top.FullName -Canonical $canonical -OptionalNameTail $tail -OutCandidates $candidates
+  }
 }
 
 if ($candidates.Count -eq 0) {
@@ -604,14 +674,17 @@ if ($candidates.Count -eq 0) {
     " or `"$canonical $tail`""
   }
   else { '' }
-
-  throw "No matching folder found for `"$canonical`"$hintTail under `"$Root`"."
+  $rootsLabel = $searchRoots -join '; '
+  throw "No matching folder found for `"$canonical`"$hintTail under `"$rootsLabel`"."
 }
 
-$partDir = ($candidates |
-  ForEach-Object { Get-Item -LiteralPath $_ } |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1).FullName
+$partDir = Select-BestPartFolder -CandidatePaths @($candidates)
+if (-not $partDir) {
+  throw "Failed to select a part folder among $($candidates.Count) candidate(s)."
+}
+if ($candidates.Count -gt 1) {
+  Write-Host ("Multiple part folders matched; chose by newest .PcbDoc: {0}" -f (Split-Path -Leaf $partDir))
+}
 
 $subs = @(Get-ChildItem -LiteralPath $partDir -Directory -ErrorAction SilentlyContinue)
 $revRecords = @()
