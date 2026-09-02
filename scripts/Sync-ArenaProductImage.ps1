@@ -86,9 +86,10 @@ function Resolve-AssemblyPartNumber([string]$canonical) {
 
 function Convert-BareBoardPartNumbersInFileName([string]$FileName) {
   # PPP-20-NNN -> PPP-10-NNN, PPP-25-NNN -> PPP-15-NNN (case-insensitive; leave other text intact).
+  # Avoid trailing \b so names like "294-25-022_iso.png" still match (underscore is a word char).
   if ([string]::IsNullOrWhiteSpace($FileName)) { return $FileName }
-  $out = [regex]::Replace($FileName, '(?i)\b(\d{3})-20-(\d{3})\b', '$1-10-$2')
-  return [regex]::Replace($out, '(?i)\b(\d{3})-25-(\d{3})\b', '$1-15-$2')
+  $out = [regex]::Replace($FileName, '(?i)(?<![0-9A-Za-z])(\d{3})-20-(\d{3})(?!\d)', '$1-10-$2')
+  return [regex]::Replace($out, '(?i)(?<![0-9A-Za-z])(\d{3})-25-(\d{3})(?!\d)', '$1-15-$2')
 }
 
 function Rename-ProductImagePngIfBareBoardNamed {
