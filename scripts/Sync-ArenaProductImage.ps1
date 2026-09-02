@@ -6,7 +6,9 @@
   End-to-end workflow:
     1. Resolve Altium production folder via Open-AltiumPartFolder.ps1 -Open ResolveJson.
     2. Look for .png files in "<prodDocDir>\PCB 3D Print" (non-recursive). If several exist,
-       the newest by LastWriteTimeUtc is used (with a warning).
+       the newest by LastWriteTimeUtc is used (with a warning). If the PNG file name contains
+       a bare-board part number (PPP-20-NNN or PPP-25-NNN), rename it on disk to the PCBA
+       equivalent (PPP-10-NNN or PPP-15-NNN) before upload.
     3. Derive the PCBA part number for Arena (same mapping as Pick & Place):
          PPP-20-YYY -> PPP-10-YYY, PPP-25-YYY -> PPP-15-YYY; PPP-10/15 unchanged.
     4. Arena file title: "Product Image <assemblyPn> Rev <L>" where <L> is letters-only from
@@ -80,6 +82,35 @@ function Resolve-AssemblyPartNumber([string]$canonical) {
     default { $mid }
   }
   return ('{0}-{1}-{2}' -f $segs[0], $asm, $segs[2])
+}
+
+function Convert-BareBoardPartNumbersInFileName([string]$FileName) {
+  # PPP-20-NNN -> PPP-10-NNN, PPP-25-NNN -> PPP-15-NNN (case-insensitive; leave other text intact).
+  if ([string]::IsNullOrWhiteSpace($FileName)) { return $FileName }
+  $out = [regex]::Replace($FileName, '(?i)\b(\d{3})-20-(\d{3})\b', '$1-10-$2')
+  return [regex]::Replace($out, '(?i)\b(\d{3})-25-(\d{3})\b', '$1-15-$2')
+}
+
+function Rename-ProductImagePngIfBareBoardNamed {
+  param([Parameter(Mandatory = $true)] [System.IO.FileInfo]$PngItem)
+  $oldName = $PngItem.Name
+  $newName = Convert-BareBoardPartNumbersInFileName $oldName
+  if ($newName -ceq $oldName) { return $PngItem }
+
+  $dest = Join-Path $PngItem.DirectoryName $newName
+  if (
+    (Test-Path -LiteralPath $dest) -and
+    -not [string]::Equals($PngItem.FullName, $dest, [StringComparison]::OrdinalIgnoreCase)
+  ) {
+    throw (
+      "Cannot rename product image PNG from '$oldName' to '$newName': " +
+      "destination already exists at `"$dest`"."
+    )
+  }
+
+  Write-Host ("  Renaming PNG (bare board PN -> PCBA): '{0}' -> '{1}'" -f $oldName, $newName)
+  Rename-Item -LiteralPath $PngItem.FullName -NewName $newName -Force
+  return (Get-Item -LiteralPath $dest)
 }
 
 function Get-RevLetterOnly([string]$revLetter) {
@@ -207,6 +238,7 @@ if ($pngFiles.Count -gt 1) {
   Write-Warning "Multiple .png files in PCB 3D Print; using the newest by last write time."
 }
 $pngItem = $pngFiles | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+$pngItem = Rename-ProductImagePngIfBareBoardNamed -PngItem $pngItem
 $pngPath = $pngItem.FullName
 
 Write-Host ''
