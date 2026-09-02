@@ -260,6 +260,37 @@ function Test-GerberFolderForDuplicateExtensions([string]$gerberDir) {
   return @($warnings)
 }
 
+function Remove-PickPlaceFileLocationLine {
+  <#
+  Altium Pick Place exports usually have:
+    line 1 = title
+    line 2 = full file path
+    line 3+ = header / data
+  Remove line 2 when it looks like a file location.
+  #>
+  param([Parameter(Mandatory = $true)] [string]$Path)
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  $lines = [System.IO.File]::ReadAllLines($Path)
+  if ($lines.Count -lt 2) { return }
+
+  $second = ("$($lines[1])").Trim()
+  $looksLikePath = $second -match '(?i)(^[A-Za-z]:\\|\\\\|/|\\)'
+  if (-not $looksLikePath) {
+    Write-Host (
+      "  Leaving line 2 in '{0}' (does not look like a file location)." -f (Split-Path -Leaf $Path)
+    ) -ForegroundColor DarkGray
+    return
+  }
+
+  $kept = New-Object System.Collections.Generic.List[string]
+  [void]$kept.Add($lines[0])
+  for ($i = 2; $i -lt $lines.Count; $i++) { [void]$kept.Add($lines[$i]) }
+  [System.IO.File]::WriteAllLines($Path, $kept.ToArray(), $utf8)
+  Write-Host ("  Removed file-location line from: {0}" -f (Split-Path -Leaf $Path))
+}
+
 function Test-GerberFolderForExtraMechanicalLayers([string]$gerberDir) {
   # Altium plots Mechanical Layer N as *.GMn (e.g. .GM1, .GM2, .GM16).
   # Only Mechanical Layer 1 is normally expected in fabrication Gerbers.
@@ -892,6 +923,15 @@ if ($Open -eq 'PickPlaceZip') {
     }
     Write-Host ("  Renaming Pick Place file: '{0}' -> '{1}'" -f $f.Name, $newName)
     Rename-Item -LiteralPath $f.FullName -NewName $newName -Force
+  }
+
+  # Re-read after possible rename; strip Altium file-location line (usually line 2).
+  $ppFilesAfter = @(Get-ChildItem -LiteralPath $pickPlaceDir -File -ErrorAction SilentlyContinue)
+  $ppContentTargets = @(
+    $ppFilesAfter | Where-Object { $_.Extension -ieq '.csv' -or $_.Extension -ieq '.txt' }
+  )
+  foreach ($f in $ppContentTargets) {
+    Remove-PickPlaceFileLocationLine -Path $f.FullName
   }
 
   $zipBase = "Pick Place $canonical Rev $zipRev"
