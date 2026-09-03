@@ -50,7 +50,16 @@ function Test-BomDescriptionPairCheckBypassed([string]$arenaDesc, [string]$altiu
   $bIsMaa = [bool]($b -match '(?i)\bmaa\b' -and $b -match '(?i)daughter\s+board')
   $aIsAtMux = [bool]($a -match '(?i)\bat[\s\-]?mux\b' -and $a -match '(?i)daughter\s+board')
   $bIsAtMux = [bool]($b -match '(?i)\bat[\s\-]?mux\b' -and $b -match '(?i)daughter\s+board')
-  return (($aIsMaa -and $bIsAtMux) -or ($bIsMaa -and $aIsAtMux))
+  if (($aIsMaa -and $bIsAtMux) -or ($bIsMaa -and $aIsAtMux)) { return $true }
+
+  # CON BNC RCPT STR 18.3MM PCB (P&P) vs BNC Connector Jack, Female Socket 50 Ohms... (Arena)
+  $aIsConBnc = [bool]($a -match '(?i)\bcon\b' -and $a -match '(?i)\bbnc\b' -and $a -match '(?i)\brcpt\b')
+  $bIsConBnc = [bool]($b -match '(?i)\bcon\b' -and $b -match '(?i)\bbnc\b' -and $b -match '(?i)\brcpt\b')
+  $aIsBncJack = [bool]($a -match '(?i)\bbnc\b' -and $a -match '(?i)\bconnector\b' -and $a -match '(?i)\bjack\b')
+  $bIsBncJack = [bool]($b -match '(?i)\bbnc\b' -and $b -match '(?i)\bconnector\b' -and $b -match '(?i)\bjack\b')
+  if (($aIsConBnc -and $bIsBncJack) -or ($bIsConBnc -and $aIsBncJack)) { return $true }
+
+  return $false
 }
 
 function Get-VoltageTokens([string]$s) {
