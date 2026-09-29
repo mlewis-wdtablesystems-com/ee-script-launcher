@@ -253,6 +253,27 @@ if (-not $bom.results) {
   throw "Arena BOM returned no lines for $($PartNumber.Trim()) on $revLabel revision."
 }
 
+$helpersPath = Join-Path $scriptsDir 'AltiumRevisionHelpers.ps1'
+if (Test-Path -LiteralPath $helpersPath) {
+  . $helpersPath
+  try {
+    $pcbResolve = Resolve-BareBoardPartNumberFromBom `
+      -PcbaPartNumber $PartNumber.Trim() `
+      -BomLines @($bom.results)
+    foreach ($pcbPnOnBom in @($pcbResolve.Number) + @($pcbResolve.OtherPcbNumbers)) {
+      if ($pcbPnOnBom) { [void]$pcbPartNumbersAllowMissingFromPp.Add($pcbPnOnBom) }
+    }
+    if ($pcbResolve.Standard) {
+      [void]$pcbPartNumbersAllowMissingFromPp.Add($pcbResolve.Standard)
+    }
+    if ($pcbResolve.Note) {
+      Write-Host ("  {0}" -f $pcbResolve.Note)
+    }
+  } catch {
+    # Non-PCBA numbers still compare P&P; PCB allow-list stays Altium-resolved only.
+  }
+}
+
 $itemDescCache = @{}
 function Get-ArenaItemDescriptionText {
   param([string]$ItemNumber)
@@ -402,10 +423,11 @@ function Write-ListSection {
     [string]$Title,
     [System.ConsoleColor]$Color,
     [object[]]$Items,
-    [scriptblock]$Formatter
+    [scriptblock]$Formatter,
+    [switch]$NoColor
   )
   Write-Host ''
-  Write-Host $Title -ForegroundColor $Color
+  if ($NoColor) { Write-Host $Title } else { Write-Host $Title -ForegroundColor $Color }
   if (-not $Items -or $Items.Count -eq 0) {
     Write-Host '  (none)' -ForegroundColor DarkGray
     return
@@ -415,33 +437,33 @@ function Write-ListSection {
   }
 }
 
-Write-ListSection -Title "Matched ($($ok.Count))" -Color Green -Items $ok -Formatter {
+Write-ListSection -Title "Matched ($($ok.Count))" -Color DarkGreen -Items $ok -Formatter {
   param($x)
   Write-Host ("  {0}  {1}" -f $x.Designator, $x.PartNumber) -ForegroundColor DarkGreen
 }
 
-Write-ListSection -Title "Description mismatches ($($mismatch.Count))" -Color Red -Items $mismatch -Formatter {
+Write-ListSection -Title "Description mismatches ($($mismatch.Count))" -Color DarkRed -Items $mismatch -Formatter {
   param($x)
-  Write-Host ("  {0}  {1}" -f $x.Designator, $x.PartNumber) -ForegroundColor Red
+  Write-Host ("  {0}  {1}" -f $x.Designator, $x.PartNumber) -ForegroundColor DarkRed
   Write-Host ("    Pick & Place: {0}" -f $x.PickPlace)
   Write-Host ("    Arena BOM   : {0}" -f $x.Arena)
-  if ($x.Detail) { Write-Host ("    Detail    : {0}" -f $x.Detail) -ForegroundColor Yellow }
+  if ($x.Detail) { Write-Host ("    Detail    : {0}" -f $x.Detail) -ForegroundColor DarkRed }
 }
 
-Write-ListSection -Title "P&P designators not on Arena BOM ($($noArena.Count))" -Color Yellow -Items $noArena -Formatter {
+Write-ListSection -Title "P&P designators not on Arena BOM ($($noArena.Count))" -Color DarkRed -Items $noArena -Formatter {
   param($x)
-  Write-Host ("  {0}  P&P text: {1}" -f $x.Designator, $x.PickPlace) -ForegroundColor Yellow
+  Write-Host ("  {0}  P&P text: {1}" -f $x.Designator, $x.PickPlace) -ForegroundColor DarkRed
 }
 
-Write-ListSection -Title "Arena BOM designators missing from P&P ($($arenaOnly.Count))" -Color Yellow -Items $arenaOnly -Formatter {
+Write-ListSection -Title "Arena BOM designators missing from P&P ($($arenaOnly.Count))" -Color DarkRed -Items $arenaOnly -Formatter {
   param($des)
   $a = $designatorMap[$des]
-  Write-Host ("  {0}  {1}  Arena: {2}" -f $des, $a.PartNumber, $a.Description) -ForegroundColor Yellow
+  Write-Host ("  {0}  {1}  Arena: {2}" -f $des, $a.PartNumber, $a.Description) -ForegroundColor DarkRed
 }
 
-Write-ListSection -Title "P&P rows with empty Description/Comment ($($emptyPp.Count))" -Color DarkYellow -Items $emptyPp -Formatter {
+Write-ListSection -Title "P&P rows with empty Description/Comment ($($emptyPp.Count))" -Color DarkRed -Items $emptyPp -Formatter {
   param($x)
-  Write-Host ("  {0}" -f $x.Designator) -ForegroundColor DarkYellow
+  Write-Host ("  {0}" -f $x.Designator) -ForegroundColor DarkRed
 }
 
 Write-ListSection -Title "Accepted N/F or DNF (P&P vs Arena) ($($acceptedNf.Count))" -Color DarkGreen -Items $acceptedNf -Formatter {
@@ -454,10 +476,10 @@ Write-ListSection -Title "P&P rows for Arena NF/DNF lines ($($nfInPp.Count))" -C
   Write-Host ("  {0}  (still present in P&P; Arena marks Not Fitted)" -f $x.Designator) -ForegroundColor DarkGray
 }
 
-Write-ListSection -Title "PCB part(s) OK missing from P&P ($($pcbMissingOk.Count))" -Color DarkGreen -Items $pcbMissingOk -Formatter {
+Write-ListSection -Title "PCB part(s) OK missing from P&P ($($pcbMissingOk.Count))" -NoColor -Items $pcbMissingOk -Formatter {
   param($des)
   $a = $designatorMap[$des]
-  Write-Host ('  {0}  {1}  (board item - not required in Pick and Place)' -f $des, $a.PartNumber) -ForegroundColor DarkGreen
+  Write-Host ('  {0}  {1}  (board item - not required in Pick and Place)' -f $des, $a.PartNumber)
 }
 
 if ($skippedNonComponent -gt 0) {
@@ -468,10 +490,10 @@ if ($skippedNonComponent -gt 0) {
 Write-Host ''
 $issueCount = $mismatch.Count + $noArena.Count + $arenaOnly.Count + $emptyPp.Count
 if ($issueCount -eq 0) {
-  Write-Host "=== All compared designators match Arena BOM descriptions ($($ok.Count) checked) ===" -ForegroundColor Green
+  Write-Host "=== All compared designators match Arena BOM descriptions ($($ok.Count) checked) ===" -ForegroundColor DarkGreen
   exit 0
 }
 
 Write-Host ("=== Check finished with issues: {0} mismatch(es), {1} only-in-P&P, {2} only-in-Arena, {3} empty P&P text ===" -f `
-  $mismatch.Count, $noArena.Count, $arenaOnly.Count, $emptyPp.Count) -ForegroundColor Red
+  $mismatch.Count, $noArena.Count, $arenaOnly.Count, $emptyPp.Count) -ForegroundColor DarkRed
 exit 1

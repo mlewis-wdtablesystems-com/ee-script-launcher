@@ -271,7 +271,7 @@ $outPath = Join-Path $OutputDirectory $fileName
 [System.IO.File]::WriteAllBytes($outPath, $result.Bytes)
 
 Write-Host ''
-Write-Host ("Saved: {0}" -f $outPath) -ForegroundColor Green
+Write-Host ("Saved: {0}" -f $outPath) -ForegroundColor DarkGreen
 Write-Host ("  Size:  {0:N0} bytes" -f $result.Bytes.Length)
 Write-Host ("  Via:   {0}" -f $result.Endpoint)
 exit 0

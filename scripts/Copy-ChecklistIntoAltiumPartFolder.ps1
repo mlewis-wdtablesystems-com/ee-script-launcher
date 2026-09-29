@@ -23,7 +23,7 @@
 param(
   [Parameter(Mandatory = $true)] [string]$PartNumber,
   [Parameter(Mandatory = $false)]
-  [string]$LibraryFolder = 'C:\Users\mlewis\OneDrive - Walker Digital\WTDS-RDAustralia - Documents\23. Altium\Altium Library'
+  [string]$LibraryFolder = 'C:\Users\mlewis\Walker Digital Table Systems\WTDS-RDAustralia - Documents\23. Altium\Altium Library'
 )
 
 $ErrorActionPreference = 'Stop'

@@ -10,8 +10,8 @@
   --accent-hover: #b52842;
   --accent-muted: rgba(154, 30, 54, 0.12);
   --ok: #1f7a45;
-  --warn: #a66a00;
-  --err: #9a1e36;
+  --warn: #c05612;
+  --err: #8b1515;
   --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
   --radius: 6px;
   --topbar-h: 52px;
@@ -551,7 +551,8 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
 
 .field-wide input[type="file"],
 .field-wide textarea,
-.field-wide .loadable-select {
+.field-wide .loadable-select,
+.field-wide .file-dropzone {
   flex: 1 1 180px;
   min-width: 120px;
   max-width: 100%;
@@ -599,6 +600,56 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   max-width: 180px;
   font-size: 11px;
   padding: 2px 4px;
+}
+
+.file-dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-height: 48px;
+  min-width: 180px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+.file-dropzone.dragover {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.file-dropzone.disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.file-dropzone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 0;
+}
+
+.file-dropzone-hint,
+.file-dropzone-name {
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.file-dropzone-name {
+  color: var(--text);
+  word-break: break-all;
 }
 
 .field input:not([type="checkbox"]):focus,
@@ -755,6 +806,10 @@ button.run.discover-prefill {
 
 .stdout:empty, .stderr:empty { display: none; }
 
+.stdout .log-ok, .stderr .log-ok { color: var(--ok) !important; }
+.stdout .log-warn, .stderr .log-warn { color: var(--warn) !important; }
+.stdout .log-err, .stderr .log-err { color: var(--err) !important; }
+
 #output-prompts {
   display: flex;
   flex-direction: column;
@@ -767,7 +822,8 @@ button.run.discover-prefill {
 
 .duplicate-upload-prompt,
 .zip-overwrite-prompt,
-.confirm-upload-prompt {
+.confirm-upload-prompt,
+.missing-schematic-prompt {
   padding: 10px 12px;
   border-radius: var(--radius);
   background: var(--surface-2);
@@ -787,9 +843,15 @@ button.run.discover-prefill {
   background: var(--accent-muted);
 }
 
+.missing-schematic-prompt {
+  border: 1px solid var(--warn);
+  background: rgba(166, 106, 0, 0.08);
+}
+
 .duplicate-upload-msg,
 .zip-overwrite-msg,
-.confirm-upload-msg {
+.confirm-upload-msg,
+.missing-schematic-msg {
   margin: 0 0 8px;
   font-size: 13px;
   color: var(--text);
@@ -797,7 +859,8 @@ button.run.discover-prefill {
 
 .duplicate-upload-actions,
 .zip-overwrite-actions,
-.confirm-upload-actions {
+.confirm-upload-actions,
+.missing-schematic-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;

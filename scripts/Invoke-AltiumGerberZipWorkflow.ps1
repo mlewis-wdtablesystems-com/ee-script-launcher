@@ -38,5 +38,5 @@ if ($ForceZipOverwrite) { $openArgs += '-ForceZipOverwrite' }
 Invoke-NestedLauncherPowerShell -ArgumentList $openArgs -StepLabel 'Check and Build Gerber Zip' | Out-Null
 
 Write-Host ''
-Write-Host 'Done.' -ForegroundColor Green
+Write-Host 'Done.' -ForegroundColor DarkGreen
 exit 0

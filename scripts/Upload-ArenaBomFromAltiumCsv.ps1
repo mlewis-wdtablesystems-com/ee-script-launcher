@@ -491,7 +491,7 @@ function Import-ArenaBomFromCsvViaRestApi {
       } else {
         $failed.Add("$pn : $(($_.Exception.Message -split '[\r\n]')[0].Trim())")
       }
-      Write-Host ("  BOM line POST failed for {0}:" -f $pn) -ForegroundColor Yellow
+      Write-Host ("  BOM line POST failed for {0}:" -f $pn) -ForegroundColor DarkRed
       foreach ($line in ($_.Exception.Message -split '[\r\n]')) {
         if ($line.Trim()) { Write-Host "    $line" }
       }
@@ -500,7 +500,7 @@ function Import-ArenaBomFromCsvViaRestApi {
 
   Write-Host ("  Added {0} BOM line(s) via REST API." -f $added)
   if ($failed.Count -gt 0) {
-    Write-Host ("  Failed {0} line(s):" -f $failed.Count) -ForegroundColor Red
+    Write-Host ("  Failed {0} line(s):" -f $failed.Count) -ForegroundColor DarkRed
     foreach ($f in $failed) { Write-Host "    $f" }
     throw 'One or more BOM lines could not be added.'
   }
@@ -561,7 +561,7 @@ function Resolve-ArenaBomImportDefinition {
   $defs = Invoke-ArenaJson -Uri "$ApiRoot/imports?resource=ITEM_BOM&mode=$modeEnc&limit=50" -Headers $Headers
   if (-not $defs.results -or $defs.results.Count -eq 0) {
     Write-Host ''
-    Write-Host ("No Arena Import Definition found for resource=ITEM_BOM mode=$Mode.") -ForegroundColor Red
+    Write-Host ("No Arena Import Definition found for resource=ITEM_BOM mode=$Mode.") -ForegroundColor DarkRed
     Write-ArenaItemBomImportDefinitionCatalog -ApiRoot $ApiRoot -Headers $Headers -RequestedMode $Mode
     Write-Host ''
     Write-Host 'To fix this, either:'
@@ -669,12 +669,12 @@ if (-not $pcbaPn -or -not $pcbPn) {
 if ($pcbaPn) {
   Write-Host ("  PCBA part number : {0}" -f $pcbaPn)
 } else {
-  Write-Host '  PCBA part number : (not found - expected PPP-10-NN or PPP-15-NN in Excel row 2 / CSV line 2)' -ForegroundColor Yellow
+  Write-Host '  PCBA part number : (not found - expected PPP-10-NN or PPP-15-NN in Excel row 2 / CSV line 2)' -ForegroundColor DarkYellow
 }
 if ($pcbPn) {
   Write-Host ("  PCB part number  : {0}" -f $pcbPn)
 } else {
-  Write-Host '  PCB part number  : (not found - expected PPP-20-NN or PPP-25-NN in Excel row 3 / CSV line 3)' -ForegroundColor Yellow
+  Write-Host '  PCB part number  : (not found - expected PPP-20-NN or PPP-25-NN in Excel row 3 / CSV line 3)' -ForegroundColor DarkYellow
 }
 
 # ---------- Arena BOM compare (v2) or empty message ----------
@@ -726,9 +726,9 @@ if ($arenaBomExit -ne 0 -or $arenaRowCount -eq 0) {
   $compareExit = $LASTEXITCODE
   Write-Host ''
   if ($compareExit -eq 0) {
-    Write-Host '  Compare finished with no description/PJM mismatches.' -ForegroundColor Green
+    Write-Host '  Compare finished with no description/PJM mismatches.' -ForegroundColor DarkGreen
   } else {
-    Write-Host ("  Compare finished with exit code {0} (review differences above)." -f $compareExit) -ForegroundColor Yellow
+    Write-Host ("  Compare finished with exit code {0} (review differences above)." -f $compareExit) -ForegroundColor DarkYellow
   }
 }
 
@@ -789,7 +789,7 @@ if ($importGuid) {
     -ImportDefinitionGuid $importGuid -RunGuid $runGuid
   $finalStatus = ("$($final.status)").Trim().ToUpperInvariant()
   if ($finalStatus -eq 'ERROR' -or ([int]$final.errorCount -gt 0)) {
-    Write-Host ("Import completed with errors (status={0}, errors={1})." -f $finalStatus, $final.errorCount) -ForegroundColor Red
+    Write-Host ("Import completed with errors (status={0}, errors={1})." -f $finalStatus, $final.errorCount) -ForegroundColor DarkRed
     Write-Host 'Download the error content file from Arena Import Runs for details.'
     exit 1
   }
@@ -800,5 +800,5 @@ if ($importGuid) {
 }
 
 Write-Host ''
-Write-Host ("Done. BOM import committed for {0} ({1})." -f $PartNumber.Trim(), $pickedCsv.Name) -ForegroundColor Green
+Write-Host ("Done. BOM import committed for {0} ({1})." -f $PartNumber.Trim(), $pickedCsv.Name) -ForegroundColor DarkGreen
 exit 0

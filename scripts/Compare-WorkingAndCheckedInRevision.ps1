@@ -5,7 +5,8 @@
 .DESCRIPTION
   For a PCBA part number (PPP-10-XXX / PPP-15-XXX) and its mapped bare board
   (PPP-20-XXX / PPP-25-XXX), compares working (status 0) vs newest effective /
-  checked-in (status 1) revision and reports:
+  checked-in (status 1) revision and reports. If the standard PCB is not on
+  the PCBA working BOM but another PCB is, that BOM PCB is compared instead:
 
     - Revision number differences
     - File association differences (by category; title / edition / file number)
@@ -68,6 +69,7 @@ if ([string]::IsNullOrWhiteSpace($WorkspaceId)) { throw 'Set ARENA_WORKSPACE_ID 
 $parts = ConvertTo-PcbaAndBareBoardPartNumbers -PartNumber $PartNumber
 $pcbaNumber = $parts.Pcba
 $bareNumber = $parts.Bare
+$pcbResolveNote = ''
 
 $apiRoot = $BaseUrl.TrimEnd('/')
 
@@ -435,7 +437,28 @@ function Compare-ItemPair {
 
 Write-Output ("=== Compare working vs checked-in ===" )
 Write-Output ("  PCBA part:      {0}" -f $pcbaNumber)
-Write-Output ("  Bare PCB part:  {0}  (auto-mapped from PCBA)" -f $bareNumber)
+
+$pcbaInfoForPcb = Get-WorkingAndCheckedInRevisions -ItemNumber $pcbaNumber
+$bomGuidForPcb = $null
+if ($pcbaInfoForPcb.Found -and $pcbaInfoForPcb.Working -and $pcbaInfoForPcb.Working.guid) {
+  $bomGuidForPcb = $pcbaInfoForPcb.Working.guid
+} elseif ($pcbaInfoForPcb.Found -and $pcbaInfoForPcb.CheckedIn -and $pcbaInfoForPcb.CheckedIn.guid) {
+  $bomGuidForPcb = $pcbaInfoForPcb.CheckedIn.guid
+}
+if ($bomGuidForPcb) {
+  $pcbResolve = Resolve-BareBoardPartNumberFromBom `
+    -PcbaPartNumber $pcbaNumber `
+    -BomLines @(Get-BomOnRev -RevGuid $bomGuidForPcb)
+  $bareNumber = $pcbResolve.Number
+  if ($pcbResolve.Note) { $pcbResolveNote = $pcbResolve.Note }
+}
+
+if ($pcbResolveNote) {
+  Write-Output ("  Bare PCB part:  {0}" -f $bareNumber)
+  Write-Output ("  PCB mapping:    {0}" -f $pcbResolveNote)
+} else {
+  Write-Output ("  Bare PCB part:  {0}  (auto-mapped from PCBA)" -f $bareNumber)
+}
 Write-Output ''
 
 Compare-ItemPair -Label 'PCBA' -ItemNumber $pcbaNumber

@@ -568,6 +568,6 @@ $utf8Bom = New-Object System.Text.UTF8Encoding $true
 [System.IO.File]::WriteAllLines($OutputPath, $csvLines.ToArray(), $utf8Bom)
 
 Write-Host ''
-Write-Host ("Wrote {0} BOM line(s) to:" -f $mergedRows.Count) -ForegroundColor Green
+Write-Host ("Wrote {0} BOM line(s) to:" -f $mergedRows.Count) -ForegroundColor DarkGreen
 Write-Host "  $OutputPath"
 exit 0

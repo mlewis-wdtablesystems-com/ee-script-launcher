@@ -602,14 +602,14 @@ $changeCount = $replaceCount + $addCount
 if (-not $ApplyChanges) {
   if ($changeCount -eq 0) {
     Write-Host ''
-    Write-Host 'All designators already use the matching cap parts. Nothing to do.' -ForegroundColor Green
+    Write-Host 'All designators already use the matching cap parts. Nothing to do.' -ForegroundColor DarkGreen
     exit 0
   }
   Write-Host ''
   $previewParts = New-Object System.Collections.Generic.List[string]
   if ($replaceCount -gt 0) { [void]$previewParts.Add("$replaceCount to replace") }
   if ($addCount -gt 0) { [void]$previewParts.Add("$addCount to add") }
-  Write-Host ("Preview only: {0}." -f ($previewParts -join ', ')) -ForegroundColor Yellow
+  Write-Host ("Preview only: {0}." -f ($previewParts -join ', ')) -ForegroundColor DarkYellow
   Write-Host 'Check "Apply changes to Arena BOM" and run again to update the working revision.'
   exit 0
 }
@@ -660,5 +660,5 @@ if ($mergedGroups -eq 0) {
 
 Write-Host ''
 Write-Host ("  Applied {0} BOM change(s) on working revision ({1} replace, {2} add); merged {3} part group(s)." -f `
-  $totalChanged, $replaceCount, $addCount, $mergedGroups) -ForegroundColor Green
+  $totalChanged, $replaceCount, $addCount, $mergedGroups) -ForegroundColor DarkGreen
 exit 0

@@ -3,7 +3,9 @@
   Run pre-production release checks for a PCBA on working revisions.
 
 .DESCRIPTION
-  For a PCBA part number, runs (in order) and prints the full output of each:
+  For a PCBA part number, runs (in order) and prints the full output of each.
+  PCB checks use the standard PPP-20/25 mapping unless that part is missing
+  from the PCBA BOM and another PCB is present; then that BOM PCB is used.
 
     1. Remove Illustrative Image from PCB bare board (working revision), if present
     2. Arena checked-in revision letter vs Altium production folder
@@ -72,13 +74,15 @@ function Invoke-ReleaseCheckStep {
 
   $text = Format-NestedPowerShellOutput $out
   if ($text.Trim()) {
-    Write-Host $text
+    Write-ScriptResultLines $text
   }
 
   if ($code -ne 0) {
     $summary = Get-NestedScriptFailureSummary -OutputText $text -StepLabel $Title -ExitCode $code
     Write-Host ''
-    Write-Host "FAILED: $summary" -ForegroundColor Red
+    Write-ScriptResultLines "FAILED: $summary"
+  } else {
+    Write-ScriptResultLines ("  OK: {0}" -f $Title)
   }
 
   return [pscustomobject]@{
@@ -89,33 +93,27 @@ function Invoke-ReleaseCheckStep {
 
 $psBase = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File')
 
-$results = @(
-  Invoke-ReleaseCheckStep -Title 'Remove Illustrative Image from PCB (bare board)' -ArgumentList (
-    $psBase + @($removePcbImageScript, '-PartNumber', $pn)
-  )
-  Invoke-ReleaseCheckStep -Title 'Arena checked-in revision letter vs Altium production folder' -ArgumentList (
-    $psBase + @($revMatchScript, '-PartNumber', $pn)
-  )
-  Invoke-ReleaseCheckStep -Title 'Check Pick and Place File with Arena BOM (working revision)' -ArgumentList (
-    $psBase + @($pickPlaceScript, '-PartNumber', $pn, '-RevisionMode', 'working')
-  )
-  Invoke-ReleaseCheckStep -Title 'Check PCBA and PCB Files (working revision)' -ArgumentList (
-    $psBase + @($pcbaFilesScript, '-PartNumber', $pn, '-RevisionMode', 'working')
-  )
-  Invoke-ReleaseCheckStep -Title 'Compare Working and Checked In Revision' -ArgumentList (
-    $psBase + @($compareScript, '-PartNumber', $pn)
-  )
-)
+$results = New-Object System.Collections.Generic.List[object]
+foreach ($step in @(
+    @{ Title = 'Remove Illustrative Image from PCB (bare board)'; Args = @($removePcbImageScript, '-PartNumber', $pn) }
+    @{ Title = 'Arena checked-in revision letter vs Altium production folder'; Args = @($revMatchScript, '-PartNumber', $pn) }
+    @{ Title = 'Check Pick and Place File with Arena BOM (working revision)'; Args = @($pickPlaceScript, '-PartNumber', $pn, '-RevisionMode', 'working') }
+    @{ Title = 'Check PCBA and PCB Files (working revision)'; Args = @($pcbaFilesScript, '-PartNumber', $pn, '-RevisionMode', 'working') }
+    @{ Title = 'Compare Working and Checked In Revision'; Args = @($compareScript, '-PartNumber', $pn) }
+  )) {
+  $one = Invoke-ReleaseCheckStep -Title $step.Title -ArgumentList ($psBase + $step.Args)
+  [void]$results.Add($one)
+}
 
-$failed = @($results | Where-Object { $_.ExitCode -ne 0 })
+$failed = @($results | Where-Object { $null -ne $_.ExitCode -and $_.ExitCode -ne 0 })
 Write-Host ''
 if ($failed.Count -gt 0) {
-  Write-Host ("=== Summary: {0} of {1} checks failed ===" -f $failed.Count, $results.Count) -ForegroundColor Red
+  Write-ScriptResultLines ("=== Summary: {0} of {1} checks failed ===" -f $failed.Count, $results.Count)
   foreach ($step in $failed) {
-    Write-Host ("  - {0} (exit {1})" -f $step.Title, $step.ExitCode) -ForegroundColor Red
+    Write-ScriptResultLines ("  - {0} (exit {1})" -f $step.Title, $step.ExitCode)
   }
   exit 1
 }
 
-Write-Host '=== All checks passed ===' -ForegroundColor Green
+Write-ScriptResultLines '=== All checks passed ==='
 exit 0

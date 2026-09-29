@@ -26,6 +26,13 @@ scripts/*.xlsx
 # Launcher runtime
 scripts/launcher/.venv/
 scripts/launcher/.installed
+scripts/launcher/backup/
+
+# Cursor canvas SDK stubs (not part of the launcher)
+canvases/node_modules/
+
+# Root sample exports
+/*.csv
 
 # Altium MCP (separate git repo under wdts-altium-mcp/)
 wdts-altium-mcp/

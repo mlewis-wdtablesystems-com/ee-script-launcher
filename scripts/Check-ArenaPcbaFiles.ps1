@@ -4,9 +4,10 @@
 
 .DESCRIPTION
   Given a PCBA part number PPP-10-XXX (or PPP-15-XXX), the matching PCB
-  number is PPP-20-XXX (or PPP-25-XXX). On the working revision or
-  the most recent checked-in (effective) revision of each item this script
-  checks for these file categories:
+  number is normally PPP-20-XXX (or PPP-25-XXX). If that standard PCB is
+  not on the PCBA BOM but another PCB is, that BOM PCB is used instead.
+  On the working revision or the most recent checked-in (effective)
+  revision of each item this script checks for these file categories:
 
       PCBA item:
         - Pick and Place
@@ -91,15 +92,10 @@ if ([string]::IsNullOrWhiteSpace($Email))       { throw 'Set ARENA_EMAIL or pass
 if ([string]::IsNullOrWhiteSpace($password))    { throw 'Set ARENA_PASSWORD.' }
 if ([string]::IsNullOrWhiteSpace($WorkspaceId)) { throw 'Set ARENA_WORKSPACE_ID or pass -WorkspaceId.' }
 
-# Validate + derive bare-board PN.
-$m = [regex]::Match($PartNumber.Trim(), '^(?<prefix>\d+)-(?<asm>10|15)-(?<suffix>\d+)$')
-if (-not $m.Success) {
-  throw "PartNumber must look like PPP-10-XXX or PPP-15-XXX. Got: '$PartNumber'."
-}
-$asmCode      = $m.Groups['asm'].Value
-$bareCode     = if ($asmCode -eq '10') { '20' } else { '25' }
-$pcbaNumber   = "$($m.Groups['prefix'].Value)-$asmCode-$($m.Groups['suffix'].Value)"
-$bareNumber   = "$($m.Groups['prefix'].Value)-$bareCode-$($m.Groups['suffix'].Value)"
+$pnVariants   = Get-BareBoardPartNumberVariants -PartNumber $PartNumber
+$pcbaNumber   = $pnVariants.Pcba
+$bareNumber   = $pnVariants.Standard
+$pcbResolve   = $null
 
 $apiRoot = $BaseUrl.TrimEnd('/')
 
@@ -278,17 +274,12 @@ function Get-ExpectedRev {
 
 # ---- run checks ----
 
-Write-Output ("=== {0} (PCBA) <-> {1} (PCB) ===" -f $pcbaNumber, $bareNumber)
-Write-Output ("Revision mode: {0}" -f $revModeLabel)
-Write-Output ''
-
 $pcba = Resolve-ItemRevisions -ItemNumber $pcbaNumber -ModeKey $RevisionMode
-$bare = Resolve-ItemRevisions -ItemNumber $bareNumber -ModeKey $RevisionMode
-
 $problems = New-Object System.Collections.Generic.List[string]
 
-# ---- bare board must appear in the PCBA's BOM ----
-Write-Output ("[BOM] {0} should contain {1}" -f $pcbaNumber, $bareNumber)
+# ---- resolve PCB from BOM (standard PPP-20/25, else another PCB on the BOM) ----
+Write-Output ("[BOM] {0} should contain a bare PCB" -f $pcbaNumber)
+$bom = @()
 if (-not $pcba.Found) {
   Write-Output "  SKIP: PCBA item not found, cannot inspect BOM."
 } elseif (-not $pcba.SelectedGuid) {
@@ -297,19 +288,37 @@ if (-not $pcba.Found) {
 } else {
   $bom = @(Get-BomOnRev -RevGuid $pcba.SelectedGuid)
   Write-Output ("  PCBA {0}-rev BOM: {1} child item(s)" -f $revModeLabel, $bom.Count)
+  $pcbResolve = Resolve-BareBoardPartNumberFromBom -PcbaPartNumber $pcbaNumber -BomLines $bom
+  $bareNumber = $pcbResolve.Number
   $needle = $bareNumber.Trim().ToLowerInvariant()
   $hit = $bom | Where-Object {
-    $_.item -ne $null -and $_.item.number -ne $null -and
-    $_.item.number.ToString().Trim().ToLowerInvariant() -eq $needle
+    (Get-BomLinePartNumber -Line $_).ToLowerInvariant() -eq $needle
   } | Select-Object -First 1
   if ($hit) {
     $qty = if ($hit.quantity -ne $null) { $hit.quantity } else { '?' }
-    Write-Output ("  -> Found bare board in BOM (qty={0}, item.guid={1})." -f $qty, $hit.item.guid)
+    if ($pcbResolve.Source -eq 'bom-alternate') {
+      Write-Output ("  -> Standard PCB {0} not in BOM; using {1} (qty={2}, item.guid={3})." -f `
+        $pcbResolve.Standard, $bareNumber, $qty, $hit.item.guid)
+    } else {
+      Write-Output ("  -> Found bare board {0} in BOM (qty={1}, item.guid={2})." -f `
+        $bareNumber, $qty, $hit.item.guid)
+    }
+    if ($pcbResolve.Note) { Write-Output ("  NOTE: {0}" -f $pcbResolve.Note) }
   } else {
-    Write-Output "  WARN: bare board not found in PCBA's BOM."
+    Write-Output ("  WARN: bare board {0} not found in PCBA's BOM." -f $bareNumber)
     [void]$problems.Add("Bare board $bareNumber is not in the BOM of PCBA $pcbaNumber ($revModeLabel rev).")
   }
 }
+Write-Output ''
+
+Write-Output ("=== {0} (PCBA) <-> {1} (PCB) ===" -f $pcbaNumber, $bareNumber)
+Write-Output ("Revision mode: {0}" -f $revModeLabel)
+if ($pcbResolve -and $pcbResolve.Source -eq 'bom-alternate') {
+  Write-Output ("PCB mapping: BOM alternate (standard {0} not on BOM)" -f $pcbResolve.Standard)
+}
+Write-Output ''
+
+$bare = Resolve-ItemRevisions -ItemNumber $bareNumber -ModeKey $RevisionMode
 Write-Output ''
 
 # ---- PCBA revision letter must match PCB revision letter ----

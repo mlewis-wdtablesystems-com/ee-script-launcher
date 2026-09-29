@@ -80,5 +80,5 @@ if ($UploadToArena) {
 }
 
 Write-Host ''
-Write-Host 'Done.' -ForegroundColor Green
+Write-Host 'Done.' -ForegroundColor DarkGreen
 exit 0

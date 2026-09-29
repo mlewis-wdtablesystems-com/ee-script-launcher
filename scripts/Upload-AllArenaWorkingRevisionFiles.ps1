@@ -133,5 +133,5 @@ Invoke-Step -Title 'Check PCBA and PCB Files' -Action {
 }
 
 Write-Host ''
-Write-Host '=== All steps completed ===' -ForegroundColor Green
+Write-Host '=== All steps completed ===' -ForegroundColor DarkGreen
 exit 0

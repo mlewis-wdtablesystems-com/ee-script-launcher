@@ -30,9 +30,10 @@
 
   If the resolved part folder contains revision subfolders (Rev …, Ver …), the script picks
   the latest by suffix ordering (numbers numerically max; letters ordinal desc with mtime tie-break)
-  before opening Explorer or searching for .PrjPcb files. A folder named like
-  "Project Outputs for … Cage Ver A1" is **not** treated as a Rev/Ver folder (it is the output bundle);
-  Gerber/BOM under it resolve as the production folder even when there is no extra nesting.
+  before opening Explorer or searching for .PrjPcb files. Altium-generated folders such as
+  "Project Outputs for 225-10-002 Ver A1" or "Project Logs for … Ver A1" are **not** treated as
+  Rev/Ver folders (they are output/log bundles). Gerber/BOM/Pick Place under Project Outputs
+  resolve as the production folder even when there is no extra nesting.
 
 .PARAMETER PartNumber
   PPP-XX-XXX, optionally followed by space and additional text mirroring the folder name (e.g. "272-10-001 BJ 5P").
@@ -177,11 +178,25 @@ function Find-PartFoldersUnderParent(
   }
 }
 
+function Test-IsAltiumGeneratedBundleFolder([string]$dirName) {
+  # Sidecar / output bundles that often include "Ver A1" in the name but are
+  # not assembly revision folders (e.g. "Project Logs for 225-10-002 Ver A1").
+  if ([string]::IsNullOrWhiteSpace($dirName)) { return $false }
+  $n = $dirName.Trim()
+  if ($n -imatch '^\s*Project Outputs for\s') { return $true }
+  if ($n -imatch '^\s*Project Logs for\s') { return $true }
+  if ($n -ilike 'Production Document*') { return $true }
+  if ($n -ieq 'History' -or $n -ieq '__Previews' -or $n -ieq 'Archive' -or $n -ieq 'PDF') {
+    return $true
+  }
+  return $false
+}
+
 function Parse-RevSuffix([string]$dirName) {
-  # Altium "Project Outputs for …" / "Production Document…" folders often end
-  # with text like "Cage Ver A1". That is not an assembly revision folder; it
-  # is the production output bundle itself. Do not treat it as Rev/Ver.
-  if ($dirName -imatch '^\s*Project Outputs for\s' -or $dirName -ilike 'Production Document*') {
+  # Altium "Project Outputs for …" / "Project Logs for …" / "Production Document…"
+  # folders often end with text like "Ver A1". That is not an assembly revision
+  # folder; do not treat it as Rev/Ver.
+  if (Test-IsAltiumGeneratedBundleFolder $dirName) {
     return $null
   }
   # Accept any folder name that contains a rev tag:
@@ -217,7 +232,7 @@ function Write-OrangeWarning([string]$message) {
 
   if ($supportsVt) {
     $esc = [char]27
-    $open = "$esc[38;2;255;165;0m"
+    $open = "$esc[38;2;192;86;18m"
     $close = "$esc[0m"
     Write-Host ("{0}{1}{2}" -f $open, $message, $close)
   }
@@ -232,12 +247,12 @@ function Write-RedError([string]$message) {
 
   if ($supportsVt) {
     $esc = [char]27
-    $open = "$esc[38;2;255;0;0m"
+    $open = "$esc[38;2;139;21;21m"
     $close = "$esc[0m"
     Write-Host ("{0}{1}{2}" -f $open, $message, $close)
   }
   else {
-    Write-Host $message -ForegroundColor Red
+    Write-Host $message -ForegroundColor DarkRed
   }
 }
 
@@ -498,8 +513,9 @@ function Resolve-ProductionDocFolder([string]$targetDir) {
   }
 
   $leaf = Split-Path -Leaf $targetDir
-  # Some layouts place Gerber/BOM directly under "Project Outputs for …"
-  # (no extra nesting). If we already sit in that folder, use it.
+  # Some layouts place Gerber/BOM/Pick Place directly under "Project Outputs for …"
+  # (no extra nesting), including names like "Project Outputs for 225-10-002 Ver A1".
+  # If we already sit in that folder, use it.
   if ($leaf -ilike 'Production Document*' -or $leaf -imatch '^\s*Project Outputs for\s') {
     foreach ($probe in @('Gerber', 'BOM', 'NC Drill', 'PFS', 'Pick Place')) {
       if (Test-Path -LiteralPath (Join-Path $targetDir $probe) -PathType Container) {

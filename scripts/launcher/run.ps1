@@ -82,7 +82,7 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $here
 
 if (-not $NoForce) {
-  Write-Host "Stopping any existing launcher on port $Port ..." -ForegroundColor Yellow
+  Write-Host "Stopping any existing launcher on port $Port ..." -ForegroundColor DarkYellow
   try {
     $null = Stop-ProcessesListeningOnPort -PortNum $Port
   } catch {
@@ -93,7 +93,7 @@ if (-not $NoForce) {
 
 $python = (Get-Command python -ErrorAction SilentlyContinue)
 if (-not $python) {
-  Write-Host 'python is not on PATH. Install Python 3.10+ first.' -ForegroundColor Red
+  Write-Host 'python is not on PATH. Install Python 3.10+ first.' -ForegroundColor DarkRed
   exit 1
 }
 
@@ -127,5 +127,5 @@ if (-not $NoBrowser) {
   } -ArgumentList "http://127.0.0.1:$Port" | Out-Null
 }
 
-Write-Host "Starting launcher on http://127.0.0.1:$Port  (Ctrl+C to stop)" -ForegroundColor Green
+Write-Host "Starting launcher on http://127.0.0.1:$Port  (Ctrl+C to stop)" -ForegroundColor DarkGreen
 & $venvPython -m uvicorn app:app --host 127.0.0.1 --port $Port

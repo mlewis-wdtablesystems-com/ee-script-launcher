@@ -277,10 +277,10 @@ try {
   $dupPnGroups = @($pj.Rows | Where-Object { $_.PartNumber } | Group-Object { $_.PartNumber.Trim() } | Where-Object { $_.Count -gt 1 })
   if ($dupPnGroups.Count -gt 0) {
     Write-Host ''
-    Write-Host '=== Duplicate values in 01-PJM Part_Number (rows listed; cells highlighted yellow) ===' -ForegroundColor Yellow
+    Write-Host '=== Duplicate values in 01-PJM Part_Number (rows listed; cells highlighted yellow) ===' -ForegroundColor DarkYellow
     foreach ($g in $dupPnGroups) {
       $rowNums = @($g.Group | ForEach-Object { $_.Row })
-      Write-Host ("  '{0}'  Excel rows: {1}" -f $g.Name, ($rowNums -join ', ')) -ForegroundColor Yellow
+      Write-Host ("  '{0}'  Excel rows: {1}" -f $g.Name, ($rowNums -join ', ')) -ForegroundColor DarkYellow
     }
     if ($pj.Worksheet -and $pj.ColPartNumber -gt 0) {
       foreach ($g in $dupPnGroups) {
@@ -363,13 +363,13 @@ finally {
 
 if ($failures.Count -gt 0) {
   Write-Host ''
-  Write-Host "=== BOM export checks FAILED ($($failures.Count) issue(s)) ===" -ForegroundColor Red
+  Write-Host "=== BOM export checks FAILED ($($failures.Count) issue(s)) ===" -ForegroundColor DarkRed
   foreach ($f in $failures) { Write-Host $f; Write-Host '' }
   throw 'BOM export checks failed; not running Convert BOM (Excel -> CSV) v2.'
 }
 
 Write-Host ''
-Write-Host '=== BOM export checks (Arena + Name vs description): OK ===' -ForegroundColor Green
+Write-Host '=== BOM export checks (Arena + Name vs description): OK ===' -ForegroundColor DarkGreen
 
 if ($CreateCsv) {
   Write-Host ''
@@ -379,10 +379,10 @@ if ($CreateCsv) {
     throw "Convert-AltiumBomAuto.ps1 failed (exit $LASTEXITCODE)."
   }
   Write-Host ''
-  Write-Host 'Done. BOM export checked and CSV conversion completed.' -ForegroundColor Green
+  Write-Host 'Done. BOM export checked and CSV conversion completed.' -ForegroundColor DarkGreen
 }
 else {
   Write-Host ''
-  Write-Host 'Done. BOM export checks passed (Create CSV was not selected).' -ForegroundColor Green
+  Write-Host 'Done. BOM export checks passed (Create CSV was not selected).' -ForegroundColor DarkGreen
 }
 exit 0

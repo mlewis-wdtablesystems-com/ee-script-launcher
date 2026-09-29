@@ -127,6 +127,8 @@ class FunctionSpec:
     zip_overwrite_prompt: bool = False
     # If true, launcher offers "Confirm Upload" when script exits 12 (BOM upload preview).
     confirm_upload_prompt: bool = False
+    # If true, launcher offers "Send Email without Schematic?" when script exits 13.
+    missing_schematic_prompt: bool = False
     # With discovery: "Load name & description" applies JSON `prefill` to same-named form fields.
     discovery_prefill: bool = False
     hidden: bool = False
@@ -202,6 +204,13 @@ def _confirm_upload_args(v: dict[str, str]) -> list[str]:
     cu = (v.get("confirm_upload") or "").strip().lower()
     if cu in ("1", "true", "yes", "on"):
         return ["-ConfirmUpload"]
+    return []
+
+
+def _allow_missing_schematic_args(v: dict[str, str]) -> list[str]:
+    am = (v.get("allow_missing_schematic") or "").strip().lower()
+    if am in ("1", "true", "yes", "on"):
+        return ["-AllowMissingSchematic"]
     return []
 
 
@@ -1483,6 +1492,7 @@ FUNCTIONS: list[FunctionSpec] = [
             "Draft an HTML Outlook email to Simon Graham for the bare-board part number "
             "(Fabrication and Gerber zips, PFS pdf, and schematic pdf beside the .PrjPcb "
             "or titled 'Schecmatics of …' under a PDF folder; builds zips first if missing). "
+            "If no schematic is found, offers Send Email without Schematic. "
             "Opens in New Outlook (olk.exe) when Classic COM is unavailable."
         ),
         fields=[
@@ -1513,6 +1523,7 @@ FUNCTIONS: list[FunctionSpec] = [
             ),
         ],
         background=False,
+        missing_schematic_prompt=True,
         build_command=lambda v: _ps(
             SCRIPTS_DIR / "Order-BoardsFromSimon.ps1",
             "-PartNumber",
@@ -1523,6 +1534,7 @@ FUNCTIONS: list[FunctionSpec] = [
             v["quantity"],
             "-Urgency",
             (v.get("urgency") or "unstated").strip(),
+            *_allow_missing_schematic_args(v),
         ),
     ),
     # ----- Altium MCP (live bridge) -----
@@ -1761,8 +1773,12 @@ FUNCTIONS: list[FunctionSpec] = [
             "With 'Add bare PCB also' checked, after the PCBA duplicate the same flow runs for the mapped "
             "PPP-20 / PPP-25 bare board, or legacy PPP-10-XXX-PCB / PPP-15-XXX-PCB when the standard bare "
             "item is missing (name and description copied from the new PCBA, with PCBA changed to PCB where "
-            "present; new revision letter only, e.g. A1 -> A)."
+            "present; new revision letter only, e.g. A1 -> A). "
+            "Adds the item display image: Use Product Image (default) copies the source "
+            "Illustrative Image titled Product Image; otherwise drop or browse a local file. "
+            "The same linked image is applied to the new bare board when that option is on."
         ),
+        checkboxes_on_subrow=True,
         fields=[
             FieldSpec(
                 name="old_part_number",
@@ -1826,6 +1842,18 @@ FUNCTIONS: list[FunctionSpec] = [
                 placeholder="",
             ),
             FieldSpec(
+                name="item_image",
+                label="Item image (used when Use Product Image is off)",
+                kind="file",
+                accept="image/*,.png,.jpg,.jpeg,.gif,.webp,.bmp",
+            ),
+            FieldSpec(
+                name="use_product_image",
+                label="Use Product Image",
+                kind="checkbox",
+                default="1",
+            ),
+            FieldSpec(
                 name="add_bare_pcb_also",
                 label="Add bare PCB also",
                 kind="checkbox",
@@ -1872,6 +1900,13 @@ FUNCTIONS: list[FunctionSpec] = [
             ),
             "-AddBarePcbAlso",
             "yes" if _checkbox_on(v, "add_bare_pcb_also") else "no",
+            "-UseProductImage",
+            "yes" if _checkbox_on(v, "use_product_image", default=True) else "no",
+            *(
+                ["-ItemImageFilePath", v["item_image"].strip()]
+                if (v.get("item_image") or "").strip()
+                else []
+            ),
         ),
     ),
 ]

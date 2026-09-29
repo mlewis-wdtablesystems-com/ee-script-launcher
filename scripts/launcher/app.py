@@ -55,6 +55,7 @@ def _serializable_functions() -> list[dict]:
                 "duplicate_upload_prompt": fn.duplicate_upload_prompt,
                 "zip_overwrite_prompt": fn.zip_overwrite_prompt,
                 "confirm_upload_prompt": fn.confirm_upload_prompt,
+                "missing_schematic_prompt": fn.missing_schematic_prompt,
                 "report_view_actions": fn.report_view_actions,
                 "discovery_prefill": fn.discovery_prefill,
                 "checkboxes_on_subrow": fn.checkboxes_on_subrow,

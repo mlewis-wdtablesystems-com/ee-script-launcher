@@ -325,7 +325,7 @@ try {
   $totalDisc = 0
   foreach ($rep in $sheetReports) { $totalDisc += $rep.DiscRows.Count }
   Write-Host ''
-  Write-Host ("Done. Total discrepancy rows: {0}. Output:`n  {1}" -f $totalDisc, $OutputPath) -ForegroundColor Green
+  Write-Host ("Done. Total discrepancy rows: {0}. Output:`n  {1}" -f $totalDisc, $OutputPath) -ForegroundColor DarkGreen
 }
 finally {
   if ($srcWb) {

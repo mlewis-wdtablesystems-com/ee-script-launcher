@@ -4,9 +4,21 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Electronics Engineering Assistant</title>
-  <link rel="stylesheet" href="/static/style.css?v=10" />
+  <link rel="stylesheet" href="/static/style.css?v=13" />
 </head>
 <body>
+{% macro file_input(f) %}
+<div class="file-dropzone">
+  <input
+    type="file"
+    name="{{ f.name }}"
+    {% if f.accept %}accept="{{ f.accept }}"{% endif %}
+    {% if f.required %}required{% endif %}
+  />
+  <span class="file-dropzone-hint">Drop a file here or click to browse</span>
+  <span class="file-dropzone-name" hidden></span>
+</div>
+{% endmacro %}
   <div class="app-shell">
     <div class="app-chrome">
       <header class="topbar">
@@ -63,6 +75,7 @@
                   data-duplicate-prompt="{{ '1' if fn.duplicate_upload_prompt else '0' }}"
                   data-zip-overwrite-prompt="{{ '1' if fn.zip_overwrite_prompt else '0' }}"
                   data-confirm-upload-prompt="{{ '1' if fn.confirm_upload_prompt else '0' }}"
+                  data-missing-schematic-prompt="{{ '1' if fn.missing_schematic_prompt else '0' }}"
                   data-discovery-prefill="{{ '1' if fn.discovery_prefill else '0' }}"
                   data-report-view-actions="{{ '1' if fn.report_view_actions else '0' }}"
                 >
@@ -101,12 +114,7 @@
                             {% elif f.kind == 'textarea' %}
                               <textarea name="{{ f.name }}" rows="2" placeholder="{{ f.placeholder }}">{{ f.default }}</textarea>
                             {% elif f.kind == 'file' %}
-                              <input
-                                type="file"
-                                name="{{ f.name }}"
-                                {% if f.accept %}accept="{{ f.accept }}"{% endif %}
-                                {% if f.required %}required{% endif %}
-                              />
+                              {{ file_input(f) }}
                             {% elif f.kind == 'loadable_select' %}
                               <div class="loadable-select" data-name="{{ f.name }}" data-meta="{{ f.discovery_meta|join(',') }}">
                                 <select name="{{ f.name }}" disabled {% if f.required %}required{% endif %}>
@@ -128,6 +136,9 @@
                           </label>
                           {% endif %}
                         {% endfor %}
+                        {% if fn.discovery_prefill and fn.has_discovery %}
+                        <button type="button" class="discover-prefill run">Arena prefill</button>
+                        {% endif %}
                         </div>
                         <div class="script-fields-subrow">
                         {% for f in fn.fields if f.kind == 'checkbox' %}
@@ -200,12 +211,7 @@
                           {% elif f.kind == 'textarea' %}
                             <textarea name="{{ f.name }}" rows="2" placeholder="{{ f.placeholder }}">{{ f.default }}</textarea>
                           {% elif f.kind == 'file' %}
-                            <input
-                              type="file"
-                              name="{{ f.name }}"
-                              {% if f.accept %}accept="{{ f.accept }}"{% endif %}
-                              {% if f.required %}required{% endif %}
-                            />
+                            {{ file_input(f) }}
                           {% elif f.kind == 'loadable_select' %}
                             <div class="loadable-select" data-name="{{ f.name }}" data-meta="{{ f.discovery_meta|join(',') }}">
                               <select name="{{ f.name }}" disabled {% if f.required %}required{% endif %}>
@@ -274,6 +280,16 @@
                       <div class="confirm-upload-actions">
                         <button type="button" class="run confirm-upload-yes">Confirm Upload</button>
                         <button type="button" class="run confirm-upload-no">Cancel</button>
+                      </div>
+                    </div>
+                    {% endif %}
+
+                    {% if fn.missing_schematic_prompt %}
+                    <div class="missing-schematic-prompt" hidden>
+                      <p class="missing-schematic-msg">Schematic PDF not found.</p>
+                      <div class="missing-schematic-actions">
+                        <button type="button" class="run missing-schematic-proceed">Send Email without Schematic?</button>
+                        <button type="button" class="run missing-schematic-cancel">Cancel</button>
                       </div>
                     </div>
                     {% endif %}
@@ -556,12 +572,101 @@
     const REPORT_OPEN_MIN_CHARS = 280;
     const REPORT_OPEN_MIN_LINES = 12;
 
+    const LOG_COLORS = {
+      ok: "#1f7a45",
+      warn: "#c05612",
+      err: "#8b1515",
+    };
+
     function escapeHtml(text) {
       return String(text)
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
+    }
+
+    function classifyScriptLogLine(raw) {
+      const t = String(raw).replace(/\u001b\[[0-9;]*m/g, "").trim();
+      if (!t) return "";
+      if (/PCB part\(s\) OK missing from P&P|board item - not required/i.test(t)) return "";
+      if (/\(\s*0\s*\)/.test(t) || /\(none\)/i.test(t)) return "ok";
+      if (/^=== /.test(t)) {
+        if (/fail|issue|error/i.test(t)) return "err";
+        if (/match|passed|All compared|All required|All checks|\bOK\b/i.test(t)) return "ok";
+        if (/warn/i.test(t)) return "warn";
+      }
+      if (/\(no (quantity|description|duplicate)/i.test(t)) return "ok";
+
+      if (/^(WARN:|WARNING:|SKIP:)/i.test(t) || /\bWARN(ING)?:/i.test(t)) return "warn";
+      if (/^NOTE:/i.test(t) || /assuming Rev/i.test(t) || /Preview only/i.test(t)) return "warn";
+      if (/Completed with warnings/i.test(t)) return "warn";
+
+      if (/^(FAILED:|ERROR:|MISSING:)/i.test(t)) return "err";
+      if (/\bERROR:|\bFAILED\b|\bMISSING:/i.test(t)) return "err";
+      if (/Check finished with issues|issue\(s\)|difference\(s\)|letters differ/i.test(t)) return "err";
+      if (/mismatch/i.test(t)) return "err";
+      if (/CHANGED |ADDED on working|REMOVED on working|REVISION NUMBER CHANGED/i.test(t)) return "err";
+      if (/not found in|has no trailing|expected Rev |could not /i.test(t)) return "err";
+      if (/not on Arena BOM|missing from P&P|empty Description|is not in the BOM of PCBA/i.test(t)) return "err";
+      if (/checks failed|zip aborted|Finished with errors|\(exit \d+\)/i.test(t)) return "err";
+      if (/Exception|CategoryInfo|FullyQualifiedErrorId|^At line |^\+ /i.test(t)) return "err";
+      if (/\.ps1\s*:/i.test(t)) return "err";
+
+      if (/^OK:|\bOK\b|-> Rev .+ OK/i.test(t)) return "ok";
+      if (/Revision letters match|All checks passed|All compared|All required|All steps completed/i.test(t)) return "ok";
+      if (/^Matched /i.test(t)) return "ok";
+      if (/Found bare board| -> Found /i.test(t)) return "ok";
+      if (/^Done\.?$/i.test(t) || /Done\. /i.test(t) || /\bpassed\b/i.test(t)) return "ok";
+      if (/no changes detected|lines match|fields match|unchanged/i.test(t)) return "ok";
+      if (/No Illustrative Image|Compare finished with no/i.test(t)) return "ok";
+      if (/Accepted N\/F/i.test(t)) return "ok";
+      return "";
+    }
+
+    function ansiSgrToCls(params) {
+      const parts = String(params || "").split(";").map((n) => parseInt(n, 10)).filter((n) => !Number.isNaN(n));
+      if (parts.length >= 4 && parts[0] === 38 && parts[1] === 2) {
+        const r = parts[2], g = parts[3], b = parts[4];
+        if (g > r && g > b) return "ok";
+        if (r > 80 && g > 40 && g < 160 && b < 80) return "warn";
+        if (r > g && r > b) return "err";
+      }
+      if (parts.includes(32) || parts.includes(92)) return "ok";
+      if (parts.includes(33) || parts.includes(93)) return "warn";
+      if (parts.includes(31) || parts.includes(91)) return "err";
+      return "";
+    }
+
+    function colorSpan(text, cls) {
+      if (!cls) return escapeHtml(text);
+      return `<span class="log-${cls}" style="color:${LOG_COLORS[cls]}">${escapeHtml(text)}</span>`;
+    }
+
+    function renderColoredLog(text) {
+      const s = String(text || "");
+      if (!s) return "";
+      return s.split(/\r?\n/).map((line) => {
+        const osc = String.fromCharCode(27);
+        if (line.indexOf(osc) >= 0 || line.indexOf("\u001b") >= 0) {
+          let html = "";
+          let remaining = line;
+          const re = /\u001b\[([0-9;]*)m/g;
+          let lastCls = "";
+          let lastIndex = 0;
+          let m;
+          while ((m = re.exec(remaining)) !== null) {
+            const chunk = remaining.slice(lastIndex, m.index);
+            if (chunk) html += colorSpan(chunk, lastCls);
+            lastCls = m[1] === "0" || m[1] === "" ? "" : (ansiSgrToCls(m[1]) || lastCls);
+            lastIndex = m.index + m[0].length;
+          }
+          const tail = remaining.slice(lastIndex);
+          if (tail) html += colorSpan(tail, lastCls || classifyScriptLogLine(tail));
+          return html;
+        }
+        return colorSpan(line, classifyScriptLogLine(line));
+      }).join("\n");
     }
 
     function buildLauncherReportHtml({ title, command, stdout, stderr, statusLabel }) {
@@ -575,11 +680,11 @@
       }
       if (stdout) {
         parts.push("<h2>Output</h2>");
-        parts.push(`<pre class="block out">${escapeHtml(stdout)}</pre>`);
+        parts.push(`<pre class="block out">${renderColoredLog(stdout)}</pre>`);
       }
       if (stderr) {
         parts.push("<h2>Errors / warnings</h2>");
-        parts.push(`<pre class="block err">${escapeHtml(stderr)}</pre>`);
+        parts.push(`<pre class="block err">${renderColoredLog(stderr)}</pre>`);
       }
       if (parts.length === 0) {
         parts.push('<p class="meta">(No output captured.)</p>');
@@ -618,7 +723,10 @@
       border-radius: 6px;
       background: #ffffff;
     }
-    pre.err { border-left: 4px solid #9a1e36; }
+    pre.err { border-left: 4px solid #8b1515; }
+    .log-ok { color: #1f7a45; }
+    .log-warn { color: #c05612; }
+    .log-err { color: #8b1515; }
   </style>
 </head>
 <body>
@@ -684,8 +792,8 @@
       if (outputScriptTitle) outputScriptTitle.textContent = ctx.cardTitle;
 
       globalCmdEl.textContent = data.command || "";
-      globalStdoutEl.textContent = data.stdout || "";
-      globalStderrEl.textContent = data.stderr || data.error || "";
+      globalStdoutEl.innerHTML = renderColoredLog(data.stdout || "");
+      globalStderrEl.innerHTML = renderColoredLog(data.stderr || data.error || "");
 
       const stderrText = data.stderr || data.error || "";
       const hasContent = Boolean(String(data.stdout || "").trim() || String(stderrText).trim());
@@ -751,6 +859,21 @@
       }
     }
 
+    function missingSchematicPromptFromStdout(stdout) {
+      const marker = "---MISSING-SCHEMATIC-PROMPT---";
+      const s = stdout || "";
+      const i = s.indexOf(marker);
+      if (i < 0) return null;
+      const tail = s.slice(i + marker.length).trim();
+      const line = tail.split(/\r?\n/).find((l) => /^\s*\{/.test(l));
+      if (!line) return { missingSchematic: true };
+      try {
+        return JSON.parse(line.trim());
+      } catch {
+        return { missingSchematic: true };
+      }
+    }
+
     // ----- per-script-row setup -----
     for (const card of document.querySelectorAll(".script-row")) {
       const fnId = card.dataset.fn;
@@ -786,8 +909,68 @@
       const confirmUpNo = confirmUpWrap?.querySelector(".confirm-upload-no");
       const confirmUpMsg = confirmUpWrap?.querySelector(".confirm-upload-msg");
       const confirmUploadPromptCard = card.dataset.confirmUploadPrompt === "1";
+      const missSchWrap = promptStore?.querySelector(".missing-schematic-prompt");
+      const missSchProceed = missSchWrap?.querySelector(".missing-schematic-proceed");
+      const missSchCancel = missSchWrap?.querySelector(".missing-schematic-cancel");
+      const missSchMsg = missSchWrap?.querySelector(".missing-schematic-msg");
+      const missingSchematicPromptCard = card.dataset.missingSchematicPrompt === "1";
       const discoveryPrefill = card.dataset.discoveryPrefill === "1";
       const prefillBtn = form.querySelector("button.discover-prefill");
+
+      function syncFileDropzoneName(input) {
+        const wrap = input.closest(".file-dropzone");
+        if (!wrap) return;
+        const nameEl = wrap.querySelector(".file-dropzone-name");
+        const hintEl = wrap.querySelector(".file-dropzone-hint");
+        const f = input.files && input.files[0];
+        if (nameEl) {
+          nameEl.textContent = f ? f.name : "";
+          nameEl.hidden = !f;
+        }
+        if (hintEl) {
+          hintEl.textContent = f
+            ? "Drop a different file or click to browse"
+            : "Drop a file here or click to browse";
+        }
+      }
+
+      for (const wrap of form.querySelectorAll(".file-dropzone")) {
+        const input = wrap.querySelector('input[type="file"]');
+        if (!input) continue;
+        input.addEventListener("change", () => syncFileDropzoneName(input));
+        wrap.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          if (!input.disabled) wrap.classList.add("dragover");
+        });
+        wrap.addEventListener("dragleave", () => wrap.classList.remove("dragover"));
+        wrap.addEventListener("drop", (e) => {
+          e.preventDefault();
+          wrap.classList.remove("dragover");
+          if (input.disabled) return;
+          const dropped = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+          if (!dropped) return;
+          const dt = new DataTransfer();
+          dt.items.add(dropped);
+          input.files = dt.files;
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        syncFileDropzoneName(input);
+      }
+
+      const useProductImageCb = form.querySelector('input[name="use_product_image"]');
+      const itemImageInput = form.querySelector('input[type="file"][name="item_image"]');
+      function syncItemImageEnabled() {
+        if (!itemImageInput) return;
+        const usePi = !useProductImageCb || useProductImageCb.checked;
+        itemImageInput.disabled = usePi;
+        itemImageInput.required = false;
+        const dz = itemImageInput.closest(".file-dropzone");
+        if (dz) dz.classList.toggle("disabled", usePi);
+      }
+      if (useProductImageCb) {
+        useProductImageCb.addEventListener("change", syncItemImageEnabled);
+      }
+      syncItemImageEnabled();
 
       function createCsvRequested(formEl) {
         const cb = formEl.querySelector('input[name="create_csv"]');
@@ -820,6 +1003,13 @@
         confirmUpWrap.hidden = !show;
         if (show) mountPromptInOutput(confirmUpWrap);
         else if (promptStore && confirmUpWrap.parentElement === outputPromptsHost) promptStore.appendChild(confirmUpWrap);
+      }
+
+      function setMissingSchematicPromptVisible(show) {
+        if (!missSchWrap) return;
+        missSchWrap.hidden = !show;
+        if (show) mountPromptInOutput(missSchWrap);
+        else if (promptStore && missSchWrap.parentElement === outputPromptsHost) promptStore.appendChild(missSchWrap);
       }
 
       const fileInput = form.querySelector('input[type="file"][name="file"]');
@@ -944,6 +1134,14 @@
       async function executeLauncherRun(clickedBtn, runActionId) {
         rememberAndPropagatePartNumber(form);
 
+        if (useProductImageCb && itemImageInput && !useProductImageCb.checked) {
+          if (!(itemImageInput.files && itemImageInput.files[0])) {
+            status.textContent = "Choose an item image, or tick Use Product Image.";
+            status.className = "status err";
+            return;
+          }
+        }
+
         const runBtns = primaryRunButtons();
         for (const b of runBtns) b.disabled = true;
         const originalLabel = clickedBtn.textContent;
@@ -956,6 +1154,7 @@
         setDuplicatePromptVisible(false);
         setZipOverwritePromptVisible(false);
         setConfirmUploadPromptVisible(false);
+        setMissingSchematicPromptVisible(false);
 
         let fetchInit;
         let url;
@@ -1004,17 +1203,21 @@
             setDuplicatePromptVisible(false);
             setZipOverwritePromptVisible(false);
             setConfirmUploadPromptVisible(false);
+            setMissingSchematicPromptVisible(false);
           } else {
             const code = data.exit_code != null ? ` (${data.exit_code})` : "";
             const dupPayload = duplicatePromptFromStdout(data.stdout);
             const zipOwPayload = zipOverwritePromptFromStdout(data.stdout);
             const confirmUpPayload = confirmUploadPromptFromStdout(data.stdout);
+            const missSchPayload = missingSchematicPromptFromStdout(data.stdout);
             const isDupExit =
               duplicatePromptCard && dupWrap && !data.background && data.exit_code === 10 && dupPayload;
             const isZipOwExit =
               zipOverwritePromptCard && zipOwWrap && !data.background && data.exit_code === 11 && zipOwPayload;
             const isConfirmUpExit =
               confirmUploadPromptCard && confirmUpWrap && !data.background && data.exit_code === 12 && confirmUpPayload;
+            const isMissSchExit =
+              missingSchematicPromptCard && missSchWrap && !data.background && data.exit_code === 13 && missSchPayload;
             if (isConfirmUpExit) {
               const detail = confirmUpPayload.message || "Review the report above, then confirm BOM upload to Arena.";
               const extra = confirmUpPayload.csvName ? ` (${confirmUpPayload.csvName})` : "";
@@ -1024,12 +1227,14 @@
               setProceedVisible(false);
               setDuplicatePromptVisible(false);
               setZipOverwritePromptVisible(false);
+              setMissingSchematicPromptVisible(false);
               setConfirmUploadPromptVisible(true);
             } else if (isDupExit) {
               status.textContent = `Duplicate${code}.`;
               status.className = "status err";
               setProceedVisible(false);
               setZipOverwritePromptVisible(false);
+              setMissingSchematicPromptVisible(false);
               setDuplicatePromptVisible(true);
             } else if (isZipOwExit) {
               const detail = zipOwPayload.message || "An existing zip file will be overwritten.";
@@ -1039,7 +1244,18 @@
               status.className = "status err";
               setProceedVisible(false);
               setDuplicatePromptVisible(false);
+              setMissingSchematicPromptVisible(false);
               setZipOverwritePromptVisible(true);
+            } else if (isMissSchExit) {
+              const detail = missSchPayload.message || "Schematic PDF not found.";
+              if (missSchMsg) missSchMsg.textContent = detail;
+              status.textContent = `No schematic${code}.`;
+              status.className = "status err";
+              setProceedVisible(false);
+              setDuplicatePromptVisible(false);
+              setZipOverwritePromptVisible(false);
+              setConfirmUploadPromptVisible(false);
+              setMissingSchematicPromptVisible(true);
             } else {
               status.textContent = `Failed${code}.`;
               status.className = "status err";
@@ -1049,7 +1265,8 @@
                 !data.background &&
                 data.exit_code != null &&
                 data.exit_code !== 0 &&
-                data.exit_code !== 11;
+                data.exit_code !== 11 &&
+                data.exit_code !== 13;
               setProceedVisible(!!canProceed);
             }
           }
@@ -1138,6 +1355,40 @@
           } finally {
             confirmUpYes.disabled = false;
             confirmUpNo.disabled = false;
+          }
+        });
+      }
+
+
+      if (missSchProceed && missSchCancel) {
+        missSchCancel.addEventListener("click", () => setMissingSchematicPromptVisible(false));
+        missSchProceed.addEventListener("click", async () => {
+          missSchProceed.disabled = true;
+          missSchCancel.disabled = true;
+          rememberAndPropagatePartNumber(form);
+          try {
+            const inputs = readJsonInputsFromForm(form);
+            inputs.allow_missing_schematic = "1";
+            const res = await fetch(`/api/run/${fnId}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
+            });
+            const data = await res.json();
+            applyRunOutputToPanel(outputCtx, data);
+            setMissingSchematicPromptVisible(false);
+            if (data.ok) {
+              setDoneStatus(status, data);
+            } else {
+              status.textContent = `Failed (${data.exit_code}).`;
+              status.className = "status err";
+            }
+          } catch (err) {
+            status.textContent = "Error";
+            status.className = "status err";
+          } finally {
+            missSchProceed.disabled = false;
+            missSchCancel.disabled = false;
           }
         });
       }

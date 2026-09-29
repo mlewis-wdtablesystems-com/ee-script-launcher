@@ -3,9 +3,10 @@
   Remove Illustrative Image file associations from a bare PCB Arena item.
 
 .DESCRIPTION
-  For a PCBA part number, maps to the bare board (PPP-20-XXX / PPP-25-XXX) and
-  removes every Illustrative Image file linked on that item's working revision.
-  Product images belong on the PCBA item only.
+  For a PCBA part number, maps to the bare board (PPP-20-XXX / PPP-25-XXX).
+  If that standard PCB is not on the PCBA working BOM but another PCB is,
+  that BOM PCB is used instead. Removes every Illustrative Image file linked
+  on that item's working revision. Product images belong on the PCBA item only.
 
   Uses DELETE /items/<revGuid>/files/<fileGuid>. The file object remains in Arena;
   only the association on the working revision is removed.
@@ -34,7 +35,9 @@ if ([string]::IsNullOrWhiteSpace($env:ARENA_WORKSPACE_ID)) {
 }
 
 $parts = ConvertTo-PcbaAndBareBoardPartNumbers -PartNumber $PartNumber
+$pcbaPn = $parts.Pcba
 $barePn = $parts.Bare
+$pcbResolveNote = ''
 
 function Invoke-ArenaJson {
   param(
@@ -104,6 +107,21 @@ if ([string]::IsNullOrWhiteSpace($sid)) { throw 'Login response did not include 
 
 $headers = @{ arena_session_id = $sid; 'Content-Type' = 'application/json' }
 
+$pcbaEnc = [Uri]::EscapeDataString($pcbaPn)
+$pcbaLookup = Invoke-ArenaJson -Uri "$apiRoot/items?number=$pcbaEnc&limit=1" -Headers $headers
+if ($pcbaLookup.results -and $pcbaLookup.results.Count -gt 0) {
+  $pcbaRevs = Invoke-ArenaJson -Uri "$apiRoot/items/$($pcbaLookup.results[0].guid)/revisions" -Headers $headers
+  $pcbaWorking = $pcbaRevs.results | Where-Object { $_.status -eq 0 } | Select-Object -First 1
+  if ($pcbaWorking) {
+    $pcbaBom = Invoke-ArenaJson -Uri "$apiRoot/items/$($pcbaWorking.guid)/bom" -Headers $headers
+    $bomLines = @()
+    if ($pcbaBom -and $pcbaBom.results) { $bomLines = @($pcbaBom.results) }
+    $pcbResolve = Resolve-BareBoardPartNumberFromBom -PcbaPartNumber $pcbaPn -BomLines $bomLines
+    $barePn = $pcbResolve.Number
+    if ($pcbResolve.Note) { $pcbResolveNote = $pcbResolve.Note }
+  }
+}
+
 $pnEnc = [Uri]::EscapeDataString($barePn)
 $lookup = Invoke-ArenaJson -Uri "$apiRoot/items?number=$pnEnc&limit=1" -Headers $headers
 if (-not $lookup.results -or $lookup.results.Count -eq 0) {
@@ -117,8 +135,11 @@ if (-not $working) {
 }
 
 Write-Output '=== Remove Illustrative Image from PCB (bare board) ==='
-Write-Output ("  PCBA part number:     {0}" -f $parts.Pcba)
+Write-Output ("  PCBA part number:     {0}" -f $pcbaPn)
 Write-Output ("  PCB part number:      {0}" -f $barePn)
+if ($pcbResolveNote) {
+  Write-Output ("  PCB mapping:          {0}" -f $pcbResolveNote)
+}
 Write-Output ("  Working revision:     {0}" -f $(if ($working.number) { $working.number } else { '(no number)' }))
 Write-Output ''
 

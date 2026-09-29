@@ -102,11 +102,11 @@ function Test-IsAltiumBomNonDataPartNumberRow {
 }
 
 if (-not (Test-Path -LiteralPath $ArenaCsv)) {
-  Write-Host "Arena CSV not found: $ArenaCsv" -ForegroundColor Red
+  Write-Host "Arena CSV not found: $ArenaCsv" -ForegroundColor DarkRed
   exit 1
 }
 if (-not (Test-Path -LiteralPath $AltiumXlsx)) {
-  Write-Host "Altium xlsx not found: $AltiumXlsx" -ForegroundColor Red
+  Write-Host "Altium xlsx not found: $AltiumXlsx" -ForegroundColor DarkRed
   exit 1
 }
 
@@ -115,14 +115,14 @@ $arena = @{}
 try {
   $arenaRows = Import-Csv -LiteralPath $ArenaCsv
 } catch {
-  Write-Host "Failed to read Arena CSV: $($_.Exception.Message)" -ForegroundColor Red
+  Write-Host "Failed to read Arena CSV: $($_.Exception.Message)" -ForegroundColor DarkRed
   exit 1
 }
 
 # Resolve column names tolerantly (handles UTF-8 BOM etc.)
 $firstRow = $arenaRows | Select-Object -First 1
 if (-not $firstRow) {
-  Write-Host "Arena CSV is empty." -ForegroundColor Red
+  Write-Host "Arena CSV is empty." -ForegroundColor DarkRed
   exit 1
 }
 $arenaCols = $firstRow.PSObject.Properties.Name
@@ -141,7 +141,7 @@ $colQty   = Find-ArenaCol @('quantity','qty')
 $colDes   = Find-ArenaCol @('reference designator','reference designators','designator','designators')
 
 if (-not $colPN -or -not $colQty -or -not $colDes) {
-  Write-Host "Arena CSV is missing expected columns. Found: $($arenaCols -join ', ')" -ForegroundColor Red
+  Write-Host "Arena CSV is missing expected columns. Found: $($arenaCols -join ', ')" -ForegroundColor DarkRed
   exit 1
 }
 
@@ -172,7 +172,7 @@ try {
   try {
     $excel = New-Object -ComObject Excel.Application
   } catch {
-    Write-Host "Could not start Excel COM. Make sure Excel is installed." -ForegroundColor Red
+    Write-Host "Could not start Excel COM. Make sure Excel is installed." -ForegroundColor DarkRed
     exit 2
   }
   $excel.Visible = $false
@@ -343,23 +343,23 @@ if (-not [string]::IsNullOrWhiteSpace($AssemblyPartNumber)) {
 }
 Write-Host ("Arena parts : {0}    Altium parts: {1}    Common: {2}" -f $arena.Count, $altium.Count, $common.Count)
 
-Write-Section "Parts only in Arena ($($onlyArena.Count))" 'Yellow'
+Write-Section "Parts only in Arena ($($onlyArena.Count))" $(if ($onlyArena.Count -eq 0) { 'DarkGreen' } else { 'DarkRed' })
 if ($onlyArena.Count -eq 0) {
-  Write-Host '  (none)' -ForegroundColor DarkGray
+  Write-Host '  (none)' -ForegroundColor DarkGreen
 } else {
   foreach ($pn in $onlyArena) {
     $a = $arena[$pn]
-    Write-Host ("  {0,-12}  qty={1,-4}  des=[{2}]  -- {3}" -f $pn, $a.Quantity, ($a.Designators -join ', '), $a.Description)
+    Write-Host ("  {0,-12}  qty={1,-4}  des=[{2}]  -- {3}" -f $pn, $a.Quantity, ($a.Designators -join ', '), $a.Description) -ForegroundColor DarkRed
   }
 }
 
-Write-Section "Parts only in Altium ($($onlyAltium.Count))" 'Yellow'
+Write-Section "Parts only in Altium ($($onlyAltium.Count))" $(if ($onlyAltium.Count -eq 0) { 'DarkGreen' } else { 'DarkRed' })
 if ($onlyAltium.Count -eq 0) {
-  Write-Host '  (none)' -ForegroundColor DarkGray
+  Write-Host '  (none)' -ForegroundColor DarkGreen
 } else {
   foreach ($pn in $onlyAltium) {
     $a = $altium[$pn]
-    Write-Host ("  {0,-12}  qty={1,-4}  des=[{2}]  -- {3}" -f $pn, $a.Quantity, ($a.Designators -join ', '), $a.Description)
+    Write-Host ("  {0,-12}  qty={1,-4}  des=[{2}]  -- {3}" -f $pn, $a.Quantity, ($a.Designators -join ', '), $a.Description) -ForegroundColor DarkRed
   }
 }
 
@@ -387,12 +387,12 @@ foreach ($pn in $common) {
   if ($onlyB.Count -gt 0) { $diffs += "designators only in Altium: [$($onlyB -join ', ')]" }
   if ($diffs.Count -gt 0) {
     $qtyDesigDiffsFound = $true
-    Write-Host "  $pn :"
-    foreach ($d in $diffs) { Write-Host "      $d" }
+    Write-Host "  $pn :" -ForegroundColor DarkRed
+    foreach ($d in $diffs) { Write-Host "      $d" -ForegroundColor DarkRed }
   }
 }
 if (-not $qtyDesigDiffsFound) {
-  Write-Host '  (no quantity or designator mismatches across common part numbers)' -ForegroundColor DarkGray
+  Write-Host '  (no quantity or designator mismatches across common part numbers)' -ForegroundColor DarkGreen
 }
 
 Write-Section "Common parts: Arena item name vs Altium description (spec-aware)" 'Cyan'
@@ -401,32 +401,32 @@ foreach ($pn in $common) {
   $chk = Test-BomDescriptionsCompatible -ArenaDescription $arena[$pn].Description -AltiumDescription $altium[$pn].Description -PartNumber $pn
   if (-not $chk.Ok) {
     $descSpecDiffsFound = $true
-    Write-Host "  $pn :"
-    Write-Host ("      {0}" -f $chk.Message)
-    Write-Host ("      arena : {0}" -f $arena[$pn].Description)
-    Write-Host ("      altium: {0}" -f $altium[$pn].Description)
+    Write-Host "  $pn :" -ForegroundColor DarkRed
+    Write-Host ("      {0}" -f $chk.Message) -ForegroundColor DarkRed
+    Write-Host ("      arena : {0}" -f $arena[$pn].Description) -ForegroundColor DarkRed
+    Write-Host ("      altium: {0}" -f $altium[$pn].Description) -ForegroundColor DarkRed
   }
 }
 if (-not $descSpecDiffsFound) {
-  Write-Host '  (no description / spec mismatches on the primary BOM sheet for common parts)' -ForegroundColor DarkGray
+  Write-Host '  (no description / spec mismatches on the primary BOM sheet for common parts)' -ForegroundColor DarkGreen
 }
 
 if (-not [string]::IsNullOrWhiteSpace($PjmSpecificationSheet)) {
-  Write-Section 'Duplicate 01-PJM Part_Number on PJM sheet' 'Yellow'
+  Write-Section 'Duplicate 01-PJM Part_Number on PJM sheet' 'DarkYellow'
   if ($pjmDupPnGroups.Count -eq 0) {
-    Write-Host '  (no duplicate part numbers on the PJM export tab)' -ForegroundColor DarkGray
+    Write-Host '  (no duplicate part numbers on the PJM export tab)' -ForegroundColor DarkGreen
   }
   else {
     foreach ($g in $pjmDupPnGroups) {
       $rowNums = @($g.Group | ForEach-Object { $_.Row })
-      Write-Host ("  '{0}'  Excel rows: {1}" -f $g.Name, ($rowNums -join ', ')) -ForegroundColor Yellow
+      Write-Host ("  '{0}'  Excel rows: {1}" -f $g.Name, ($rowNums -join ', ')) -ForegroundColor DarkRed
     }
   }
 
   $pjmTitle = "Sheet '$($PjmSpecificationSheet.Trim())' (01-PJM Part_Number vs Arena item name)"
   Write-Section $pjmTitle 'Cyan'
   if ($pjmMismatches.Count -eq 0) {
-    Write-Host '  (all PJM export rows with a matching Arena line passed description checks)' -ForegroundColor DarkGray
+    Write-Host '  (all PJM export rows with a matching Arena line passed description checks)' -ForegroundColor DarkGreen
   }
   else {
     foreach ($m in $pjmMismatches) {
@@ -444,9 +444,9 @@ if ($pjmMismatches.Count -gt 0) { $exitCode = 1 }
 
 Write-Host ''
 if ($exitCode -eq 0) {
-  Write-Host 'Done.' -ForegroundColor Green
+  Write-Host 'Done.' -ForegroundColor DarkGreen
 }
 else {
-  Write-Host 'Done with description / PJM mismatches (see above).' -ForegroundColor Yellow
+  Write-Host 'Done with description / PJM mismatches (see above).' -ForegroundColor DarkRed
 }
 exit $exitCode

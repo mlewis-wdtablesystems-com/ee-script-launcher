@@ -144,7 +144,7 @@ if ($needConfirm -and -not $ConfirmOverwrite) {
     (Format-RevisionForPrompt $pcbaCurrent),
     (Format-RevisionForPrompt $bareCurrent)
   )
-  Write-Host $msg -ForegroundColor Yellow
+  Write-Host $msg -ForegroundColor DarkYellow
   Write-Host '---UPLOAD-CONFIRM-PROMPT---'
   Write-Host (@{ message = $msg } | ConvertTo-Json -Compress)
   exit 12
@@ -173,5 +173,5 @@ Invoke-Step -Title "Set bare-board working revision ($barePn -> $bareRev)" -Acti
     -PartNumber $barePn -RevisionNumber $bareRev
 }
 
-Write-Host '=== Done ===' -ForegroundColor Green
+Write-Host '=== Done ===' -ForegroundColor DarkGreen
 exit 0

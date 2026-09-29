@@ -38,7 +38,7 @@ param(
   [ValidateSet('working', 'effective_latest')] [string]$RevisionMode = 'working',
   [Parameter(Mandatory = $false)]
   [string]$PjmDatabasePath = (
-    'C:\Users\mlewis\OneDrive - Walker Digital\WTDS-RDAustralia - Documents\23. Altium\Altium Library\PJM\PJM_Component_Database_Lib.xls'
+    'C:\Users\mlewis\Walker Digital Table Systems\WTDS-RDAustralia - Documents\23. Altium\Altium Library\PJM\PJM_Component_Database_Lib.xls'
   )
 )
 
@@ -616,7 +616,7 @@ $txtStats = Update-PickPlaceTextFile -Path $txtPath -ArchiveDir $pickPlaceArchiv
   -DesignatorMap $designatorMap -RemoveDesignators $removeDesignators -PjmComments $pjmComments
 
 Write-Host ''
-Write-Host '=== Summary ===' -ForegroundColor Green
+Write-Host '=== Summary ===' -ForegroundColor DarkGreen
 foreach ($label in @('CSV', 'TXT')) {
   $s = if ($label -eq 'CSV') { $csvStats } else { $txtStats }
   Write-Host "  $label :"
@@ -626,5 +626,5 @@ foreach ($label in @('CSV', 'TXT')) {
   Write-Host ("    No Arena match (kept):         {0}" -f $s.NoArenaMatch)
 }
 Write-Host ''
-Write-Host 'Done.' -ForegroundColor Green
+Write-Host 'Done.' -ForegroundColor DarkGreen
 exit 0

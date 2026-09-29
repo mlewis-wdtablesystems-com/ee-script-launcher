@@ -85,3 +85,135 @@ function Get-BareBoardPartNumberVariants {
     Legacy   = "$p-$a-$s-PCB"
   }
 }
+
+function Get-BomLinePartNumber {
+  param($Line)
+  if ($null -eq $Line) { return '' }
+  if ($Line.item -and $null -ne $Line.item.number) {
+    return ("$($Line.item.number)").Trim()
+  }
+  if ($null -ne $Line.PartNumber) { return ("$($Line.PartNumber)").Trim() }
+  if ($null -ne $Line.number) { return ("$($Line.number)").Trim() }
+  return ''
+}
+
+function Get-BomLineItemName {
+  param($Line)
+  if ($null -eq $Line) { return '' }
+  if ($Line.item -and $null -ne $Line.item.name) {
+    return ("$($Line.item.name)").Trim()
+  }
+  if ($null -ne $Line.Name) { return ("$($Line.Name)").Trim() }
+  if ($null -ne $Line.name) { return ("$($Line.name)").Trim() }
+  return ''
+}
+
+function Test-IsBarePcbBomLine {
+  param(
+    $Line,
+    [string]$PcbaPartNumber = ''
+  )
+  $num = Get-BomLinePartNumber -Line $Line
+  if (-not $num) { return $false }
+  if ($PcbaPartNumber -and $num.Equals($PcbaPartNumber.Trim(), [StringComparison]::OrdinalIgnoreCase)) {
+    return $false
+  }
+  if ($num -match '^\d+-(20|25)-\d+$') { return $true }
+  if ($num -match '(?i)-PCB$') { return $true }
+  $name = Get-BomLineItemName -Line $Line
+  if ($name -match '(?i)\bPCB\s*assembl|\bPCBA\b') { return $false }
+  if ($name -match '(?i)\bPCB\b|\bbare\s*board\b') { return $true }
+  return $false
+}
+
+function Get-BarePcbPartNumbersFromBom {
+  param(
+    [object[]]$BomLines,
+    [string]$PcbaPartNumber = ''
+  )
+  $seen = [System.Collections.Generic.HashSet[string]]::new(
+    [System.StringComparer]::OrdinalIgnoreCase
+  )
+  foreach ($line in @($BomLines)) {
+    if (-not (Test-IsBarePcbBomLine -Line $line -PcbaPartNumber $PcbaPartNumber)) { continue }
+    $n = Get-BomLinePartNumber -Line $line
+    if ($n) { [void]$seen.Add($n) }
+  }
+  return @($seen | Sort-Object)
+}
+
+function Resolve-BareBoardPartNumberFromBom {
+  <#
+  Prefer the standard PPP-20/25 PCB when it is on the PCBA BOM.
+  If it is missing but another PCB line is present, use that PCB for checks.
+  #>
+  param(
+    [Parameter(Mandatory = $true)] [string]$PcbaPartNumber,
+    [object[]]$BomLines
+  )
+  $v = Get-BareBoardPartNumberVariants -PartNumber $PcbaPartNumber
+  $standard = $v.Standard
+  $legacy = $v.Legacy
+  $pcbOnBom = @(Get-BarePcbPartNumbersFromBom -BomLines $BomLines -PcbaPartNumber $v.Pcba)
+
+  $standardOnBom = [bool]($pcbOnBom | Where-Object {
+    $_.Equals($standard, [StringComparison]::OrdinalIgnoreCase)
+  })
+  if ($standardOnBom) {
+    return [pscustomobject]@{
+      Number          = $standard
+      Standard        = $standard
+      Source          = 'standard'
+      Note            = ''
+      OtherPcbNumbers = @($pcbOnBom | Where-Object {
+        -not $_.Equals($standard, [StringComparison]::OrdinalIgnoreCase)
+      })
+    }
+  }
+
+  $alternates = @($pcbOnBom | Where-Object {
+    -not $_.Equals($standard, [StringComparison]::OrdinalIgnoreCase)
+  })
+
+  $chosen = $null
+  $source = 'standard-not-in-bom'
+  $note = ''
+  if ($alternates.Count -gt 0) {
+    $legacyOnBom = [bool]($alternates | Where-Object {
+      $_.Equals($legacy, [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($legacyOnBom) {
+      $chosen = $legacy
+    } else {
+      $coded = @($alternates | Where-Object { $_ -match '^\d+-(20|25)-\d+$' } | Sort-Object)
+      if ($coded.Count -gt 0) {
+        $chosen = $coded[0]
+      } else {
+        $chosen = (@($alternates | Sort-Object))[0]
+      }
+    }
+    $source = 'bom-alternate'
+    $others = @($alternates | Where-Object {
+      -not $_.Equals($chosen, [StringComparison]::OrdinalIgnoreCase)
+    })
+    $note = "Standard PCB $standard is not in the BOM; using $chosen from the BOM as the PCB for this design."
+    if ($others.Count -gt 0) {
+      $note += (" Additional PCB part(s) on BOM: {0}." -f ($others -join ', '))
+    }
+    return [pscustomobject]@{
+      Number          = $chosen
+      Standard        = $standard
+      Source          = $source
+      Note            = $note
+      OtherPcbNumbers = $others
+    }
+  }
+
+  return [pscustomobject]@{
+    Number          = $standard
+    Standard        = $standard
+    Source          = $source
+    Note            = ''
+    OtherPcbNumbers = @()
+  }
+}

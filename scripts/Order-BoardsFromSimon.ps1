@@ -31,6 +31,10 @@
   high - "Please expedite as fast as possible."
   low  - "These are not super urgent"
   unstated - omit the urgency line from the email
+
+.PARAMETER AllowMissingSchematic
+  If set, draft the email without a schematic PDF when none is found.
+  The launcher uses this after "Send Email without Schematic?".
 #>
 param(
   [Parameter(Mandatory = $true)] [string]$PartNumber,
@@ -38,7 +42,9 @@ param(
   [Parameter(Mandatory = $false)] [string]$Description = '',
   [Parameter(Mandatory = $true)]
   [ValidateSet('high', 'low', 'unstated')]
-  [string]$Urgency
+  [string]$Urgency,
+  [Parameter(Mandatory = $false)]
+  [switch]$AllowMissingSchematic
 )
 
 # Outlook COM requires an STA thread; the launcher invokes PowerShell without -STA.
@@ -50,6 +56,7 @@ if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
     '-Description', $Description,
     '-Urgency', $Urgency
   )
+  if ($AllowMissingSchematic) { $staArgs += '-AllowMissingSchematic' }
   & powershell.exe @staArgs
   exit $LASTEXITCODE
 }
@@ -280,6 +287,7 @@ function Ensure-FabricationZipForOrderBoard {
 
 function Get-SchematicPdfBesidePrjPcb {
   param([string]$SearchRoot)
+  $script:SchematicPdfLookupError = $null
   if ([string]::IsNullOrWhiteSpace($SearchRoot) -or -not (Test-Path -LiteralPath $SearchRoot -PathType Container)) {
     throw "Design folder not found for schematic PDF: $SearchRoot"
   }
@@ -289,7 +297,8 @@ function Get-SchematicPdfBesidePrjPcb {
       -not (($_.FullName -split '[\\/]') -contains 'Archive')
     })
   if ($allPrj.Count -eq 0) {
-    throw "No .PrjPcb file found under `"$SearchRoot`" (paths under an `"Archive`" folder are ignored)."
+    $script:SchematicPdfLookupError = "No .PrjPcb file found under `"$SearchRoot`" (paths under an `"Archive`" folder are ignored)."
+    return $null
   }
   $prj = $allPrj | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
   $prjDir = $prj.DirectoryName
@@ -323,7 +332,8 @@ function Get-SchematicPdfBesidePrjPcb {
     "`"$($prj.BaseName).pdf`" beside `"$prjDir`""
     '"Schecmatics of …" / "Schematics of …" under a PDF subfolder'
   ) -join '; '
-  throw "Schematic PDF not found. Looked for: $looked."
+  $script:SchematicPdfLookupError = "Schematic PDF not found. Looked for: $looked."
+  return $null
 }
 
 function Get-PfsPdfPath {
@@ -571,6 +581,23 @@ if ([string]::IsNullOrWhiteSpace($revLetterOnly)) { $revLetterOnly = $revFromFab
 $gerberZip = Join-Path $prodDocDir ("Gerbers $pcbPart Rev $revLetterOnly.zip")
 $pfsPdf = Get-PfsPdfPath -ProdDocDir $prodDocDir
 $schematicPdf = Get-SchematicPdfBesidePrjPcb -SearchRoot $designDir
+if (-not $schematicPdf) {
+  $schematicReason = if ($script:SchematicPdfLookupError) {
+    $script:SchematicPdfLookupError
+  } else {
+    'Schematic PDF not found.'
+  }
+  Write-Host "  $schematicReason"
+  if (-not $AllowMissingSchematic) {
+    Write-Host '---MISSING-SCHEMATIC-PROMPT---'
+    [pscustomobject]@{
+      missingSchematic = $true
+      message          = $schematicReason
+    } | ConvertTo-Json -Compress
+    exit 13
+  }
+  Write-Host 'WARNING: Drafting email without schematic PDF.'
+}
 
 Write-Host "  Production document folder: $prodDocDir"
 Write-Host "  Design folder (schematic):  $designDir"
@@ -580,11 +607,19 @@ Write-Host "  Revision (from Fabrication zip): Rev $revLetterOnly"
 Write-Host "  Fabrication zip:            $fabricationZip"
 Write-Host "  Gerber zip:                 $gerberZip"
 Write-Host "  PFS pdf:                    $pfsPdf"
-Write-Host "  Schematic pdf:              $schematicPdf"
+if ($schematicPdf) {
+  Write-Host "  Schematic pdf:              $schematicPdf"
+} else {
+  Write-Host '  Schematic pdf:              (none)'
+}
 
 Ensure-AltiumZip -PartLookup $pn -OpenMode GerberZip -ZipPath $gerberZip -Label 'Gerber zip'
 Write-Host "  Using PFS pdf: $pfsPdf"
-Write-Host "  Using schematic pdf: $schematicPdf"
+if ($schematicPdf) {
+  Write-Host "  Using schematic pdf: $schematicPdf"
+} else {
+  Write-Host '  Sending without schematic pdf'
+}
 
 $bodyLines = New-OrderBoardBodyLines `
   -PcbPartNumber $pcbPart `
@@ -594,11 +629,14 @@ $bodyLines = New-OrderBoardBodyLines `
   -UrgencyText $urgencyLine
 $htmlBody = ConvertTo-OrderBoardHtmlBody -Lines $bodyLines
 
+$attachmentPaths = @($fabricationZip, $gerberZip, $pfsPdf)
+if ($schematicPdf) { $attachmentPaths += $schematicPdf }
+
 Open-OrderBoardOutlookDraft `
   -To 'sgraham@wdtablesystems.com' `
   -Cc 'bthakkar@wdtablesystems.com; rohit.maurya@wdtablesystems.com; gahamad@wdtablesystems.com; sks@wdtablesystems.com' `
   -Subject "Order $pcbPart Rev $revLetterOnly" `
   -HtmlBody $htmlBody `
-  -AttachmentPaths @($fabricationZip, $gerberZip, $pfsPdf, $schematicPdf)
+  -AttachmentPaths @($attachmentPaths)
 
 exit 0

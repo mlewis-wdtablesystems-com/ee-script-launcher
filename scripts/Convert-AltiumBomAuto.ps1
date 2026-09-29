@@ -357,7 +357,7 @@ if ($headerIdx -ge 0) {
   }
   $lines = @($kept)
 } else {
-  Write-Host '  WARNING: No Designator header row found; skipping MH#/TP# line filter.' -ForegroundColor Yellow
+  Write-Host '  WARNING: No Designator header row found; skipping MH#/TP# line filter.' -ForegroundColor DarkYellow
 }
 $dropped = $beforeCount - $lines.Count
 if ($dropped -gt 0) {

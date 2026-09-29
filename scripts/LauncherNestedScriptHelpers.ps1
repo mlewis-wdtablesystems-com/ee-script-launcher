@@ -1,4 +1,82 @@
 # Dot-source from launcher workflow scripts that invoke nested powershell.exe runs.
+#
+# Result colours (console has no DarkOrange; DarkYellow is the warning/orange):
+#   good = DarkGreen, bad = DarkRed, warning = DarkYellow
+
+function Get-ScriptResultLineColor {
+  param([string]$Line)
+  $t = ("$Line").Trim()
+  if (-not $t) { return $null }
+
+  if ($t -match '(?i)PCB part\(s\) OK missing from P&P|board item - not required') { return $null }
+
+  if ($t -match '(?i)\(\s*0\s*\)') { return 'DarkGreen' }
+  if ($t -match '(?i)\(none\)') { return 'DarkGreen' }
+  if ($t -match '(?i)\(no (quantity|description|duplicate)') { return 'DarkGreen' }
+
+  if ($t -match '^=== ') {
+    if ($t -match '(?i)fail|issue|error') { return 'DarkRed' }
+    if ($t -match '(?i)match|passed|All compared|All required|All checks|OK') { return 'DarkGreen' }
+    if ($t -match '(?i)warn') { return 'DarkYellow' }
+    return $null
+  }
+
+  if ($t -match '(?i)^(WARN:|WARNING:|SKIP:)') { return 'DarkYellow' }
+  if ($t -match '(?i)\bWARN(ING)?:') { return 'DarkYellow' }
+  if ($t -match '(?i)^NOTE:|assuming Rev|Preview only|Completed with warnings') { return 'DarkYellow' }
+
+  if ($t -match '(?i)^(FAILED:|ERROR:|MISSING:)') { return 'DarkRed' }
+  if ($t -match '(?i)\bERROR:|\bFAILED\b|\bMISSING:') { return 'DarkRed' }
+  if ($t -match '(?i)Check finished with issues|issue\(s\)|difference\(s\)|letters differ') { return 'DarkRed' }
+  if ($t -match '(?i)mismatch') { return 'DarkRed' }
+  if ($t -match '(?i)CHANGED |ADDED on working|REMOVED on working|REVISION NUMBER CHANGED') { return 'DarkRed' }
+  if ($t -match '(?i)not found in|has no trailing|expected Rev |could not parse|could not load|could not determine') { return 'DarkRed' }
+  if ($t -match '(?i)not on Arena BOM|missing from P&P|empty Description|P&P rows for Arena NF') { return 'DarkRed' }
+  if ($t -match '(?i)is not in the BOM of PCBA') { return 'DarkRed' }
+  if ($t -match '(?i)P&P text:|Pick & Place:|Arena BOM\s*:|Detail\s*:') { return 'DarkRed' }
+  if ($t -match '(?i)Exception|CategoryInfo|FullyQualifiedErrorId|^At line |^\+ ') { return 'DarkRed' }
+  if ($t -match '(?i)\.ps1\s*:') { return 'DarkRed' }
+  if ($t -match '(?i)zip aborted|checks failed|\(exit \d+\)') { return 'DarkRed' }
+
+  if ($t -match '(?i)^OK:|\bOK\b|-> Rev .+ OK') { return 'DarkGreen' }
+  if ($t -match '(?i)Revision letters match|All checks passed|All compared|All required|All steps completed') { return 'DarkGreen' }
+  if ($t -match '(?i)^Matched ') { return 'DarkGreen' }
+  if ($t -match '(?i)Found bare board| -> Found ') { return 'DarkGreen' }
+  if ($t -match '(?i)^Done\.?$|Done\. |passed') { return 'DarkGreen' }
+  if ($t -match '(?i)no changes detected|lines match|fields match|unchanged') { return 'DarkGreen' }
+  if ($t -match '(?i)No Illustrative Image|Compare finished with no') { return 'DarkGreen' }
+  if ($t -match '(?i)Accepted N/F') { return 'DarkGreen' }
+
+  return $null
+}
+
+function Get-ScriptResultAnsiRgb {
+  param([string]$ColorName)
+  switch ($ColorName) {
+    'DarkGreen'  { return '31;122;69' }
+    'DarkRed'    { return '139;21;21' }
+    'DarkYellow' { return '192;86;18' }
+    default      { return $null }
+  }
+}
+
+function Write-ScriptResultLines {
+  param([string]$Text)
+  # Write to the process stdout handle, not the PowerShell pipeline.
+  # Write-Output would be captured as extra "results" by callers (e.g. Check Ready
+  # for Production Release treating every log line as a failed check).
+  $esc = [char]27
+  foreach ($line in @($Text -split "`r?`n", -1)) {
+    $color = Get-ScriptResultLineColor -Line $line
+    $rgb = Get-ScriptResultAnsiRgb -ColorName $color
+    $outLine = if ($rgb) {
+      "{0}[38;2;{1}m{2}{0}[0m" -f $esc, $rgb, $line
+    } else {
+      $line
+    }
+    [Console]::Out.WriteLine($outLine)
+  }
+}
 
 function Format-NestedPowerShellOutput {
   param([AllowEmptyCollection()][object[]]$Records)
@@ -24,7 +102,7 @@ function Get-NestedScriptFailureSummary {
   )
   $lines = @(
     $OutputText -split "`r?`n" |
-      ForEach-Object { "$_".TrimEnd() } |
+      ForEach-Object { (("$_") -replace '\x1b\[[0-9;]*m', '').TrimEnd() } |
       Where-Object { $_.Trim().Length -gt 0 }
   )
 
@@ -91,13 +169,13 @@ function Invoke-NestedLauncherPowerShell {
 
   $text = Format-NestedPowerShellOutput $out
   if ($text.Trim()) {
-    Write-Host $text
+    Write-ScriptResultLines $text
   }
 
   if ($code -ne 0) {
     $summary = Get-NestedScriptFailureSummary -OutputText $text -StepLabel $StepLabel -ExitCode $code
     Write-Host ''
-    Write-Host "ERROR: $summary" -ForegroundColor Red
+    Write-Host "ERROR: $summary" -ForegroundColor DarkRed
     exit $code
   }
 

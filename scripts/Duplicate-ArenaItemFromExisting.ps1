@@ -18,6 +18,9 @@
   the format by matching both the source and new part numbers against workspace number formats (VALUE_LIST codes,
   segment shape, or a single FREE_TEXT field such as Basic Item Number). When several formats match the source number,
   the new number must also validate (e.g. WDTS P/N project codes); prefer the most specific matching format.
+  AUTO_SEQUENCE fields (WDTS P/N last segment) are omitted on create — Arena assigns the next sequence and ignores
+  any value sent for that field. After create, if the assigned number is not exactly -NewPartNumber, the script
+  renumbers via the workspace FREE_TEXT "Basic Item Number" format and fails if that still does not match.
   The items list response may include numberFormat when the full item GET does
   not. Delimiter fields from the
   format definition are omitted on create; other fields map to hyphen-separated segments of the source and new numbers
@@ -30,9 +33,16 @@
   Source revision: -SourceRevisionMode working | effective_latest, or -SourceRevisionOverride with a rev letter
   (e.g. B) to copy from that specific revision.
 
+  After create, the new item gets the Arena display image (Illustrative Image / Product Image):
+    -UseProductImage yes (default) copies the source revision's Product Image file association;
+    otherwise -ItemImageFilePath uploads that local file (title "Product Image <newPn> Rev <letter>").
+  -ItemImageFileGuid associates an already-uploaded file (used when duplicating the mapped bare board
+  so it receives the same linked image).
+
   When the source is a PCBA (PPP-10-XXX or PPP-15-XXX), optionally after a successful duplicate the same flow runs
   for the mapped bare board (PPP-20 / PPP-25, or legacy PPP-10-XXX-PCB / PPP-15-XXX-PCB) when -AddBarePcbAlso is yes. Bare board name and description match the
   new PCBA; any "PCBA" in that text is changed to "PCB". -NewItemRevision uses the letter only (e.g. A1 -> A).
+  The bare board gets the same display-image file as the new PCBA.
 
   Credentials: ARENA_EMAIL, ARENA_PASSWORD, ARENA_WORKSPACE_ID.
 
@@ -57,6 +67,9 @@ param(
   [string]$OwnerFullName = '',
   [ValidateSet('Preview', 'Execute')] [string]$Mode = 'Execute',
   [string]$AddBarePcbAlso = 'no',
+  [string]$UseProductImage = 'yes',
+  [string]$ItemImageFilePath = '',
+  [string]$ItemImageFileGuid = '',
   [switch]$BarePcbFollowUp,
   [string]$Email = $env:ARENA_EMAIL,
   [string]$WorkspaceId = $env:ARENA_WORKSPACE_ID,
@@ -107,15 +120,16 @@ function Invoke-ArenaJson {
 
 function Invoke-ArenaJsonPostWithErrorBody {
   <#
-  Same as Invoke-ArenaJson for POST, but on failure appends the response body (Arena errors JSON) to the exception message.
+  Same as Invoke-ArenaJson for POST/PUT, but on failure appends the response body (Arena errors JSON) to the exception message.
   #>
   param(
     [Parameter(Mandatory = $true)] [string]$Uri,
     [hashtable]$Headers,
-    [Parameter(Mandatory = $true)] [string]$Body
+    [Parameter(Mandatory = $true)] [string]$Body,
+    [ValidateSet('Post', 'Put')] [string]$Method = 'Post'
   )
   try {
-    return Invoke-ArenaJson -Uri $Uri -Method Post -Headers $Headers -Body $Body
+    return Invoke-ArenaJson -Uri $Uri -Method $Method -Headers $Headers -Body $Body
   } catch {
     $msg = $_.Exception.Message
     if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
@@ -137,6 +151,200 @@ function Invoke-ArenaJsonPostWithErrorBody {
     }
     throw $msg
   }
+}
+
+function Get-DuplicateRevLetterOnly([string]$rev) {
+  if ([string]::IsNullOrWhiteSpace($rev)) { return 'A' }
+  $m = [regex]::Match($rev.Trim(), '^[A-Za-z]+')
+  if ($m.Success) { return $m.Value.ToUpperInvariant() }
+  return $rev.Trim()
+}
+
+function Test-IsIllustrativeImageCategory {
+  param([object]$Association)
+  if (-not $Association -or -not $Association.file -or -not $Association.file.category) { return $false }
+  $cat = $Association.file.category
+  $n = $cat.name
+  if ($null -ne $n -and $n.ToString().Trim().ToLowerInvariant() -eq 'illustrative image') {
+    return $true
+  }
+  $path = $cat.path
+  if ($null -ne $path -and $path.ToString().ToLowerInvariant().EndsWith('\illustrative image')) {
+    return $true
+  }
+  return $false
+}
+
+function Test-IsProductImageTitle([string]$Title) {
+  if ([string]::IsNullOrWhiteSpace($Title)) { return $false }
+  return ($Title.Trim() -match '(?i)^Product Image\b')
+}
+
+function Select-ProductImageAssociation {
+  param([object]$FilesResp)
+  if (-not $FilesResp -or -not $FilesResp.results) { return $null }
+  $rows = @($FilesResp.results | Where-Object { $_.file -and $_.file.guid })
+  $illus = @($rows | Where-Object { Test-IsIllustrativeImageCategory $_ })
+  $named = @($illus | Where-Object { Test-IsProductImageTitle ("$($_.file.title)") })
+  if ($named.Count -gt 0) { return $named[0] }
+  if ($illus.Count -gt 0) { return $illus[0] }
+  return $null
+}
+
+function Test-RevisionHasFileGuid {
+  param(
+    [Parameter(Mandatory = $true)] [string]$RevGuid,
+    [Parameter(Mandatory = $true)] [string]$FileGuid,
+    [hashtable]$Headers,
+    [string]$ApiRoot
+  )
+  $filesResp = Invoke-ArenaJson -Uri "$ApiRoot/items/$RevGuid/files" -Headers $Headers
+  if (-not $filesResp -or -not $filesResp.results) { return $false }
+  $want = $FileGuid.Trim()
+  foreach ($a in @($filesResp.results)) {
+    if (-not $a.file -or -not $a.file.guid) { continue }
+    if (("$($a.file.guid)").Trim() -eq $want) { return $true }
+  }
+  return $false
+}
+
+function Add-ArenaRevisionFileAssociation {
+  param(
+    [Parameter(Mandatory = $true)] [string]$RevGuid,
+    [Parameter(Mandatory = $true)] [string]$FileGuid,
+    [hashtable]$Headers,
+    [string]$ApiRoot
+  )
+  $fg = $FileGuid.Trim()
+  if (-not $fg) { throw 'File guid is empty; cannot associate item image.' }
+  if (Test-RevisionHasFileGuid -RevGuid $RevGuid -FileGuid $fg -Headers $Headers -ApiRoot $ApiRoot) {
+    Write-Host ("  Item image already associated (file guid {0})." -f $fg)
+    return
+  }
+  $assocBody = @{
+    latestEditionAssociation = $true
+    primary                  = $false
+    file                     = @{ guid = $fg }
+  } | ConvertTo-Json
+  [void](Invoke-ArenaJson -Uri "$ApiRoot/items/$RevGuid/files" -Method Post -Headers $Headers -Body $assocBody)
+  Write-Host ("  Associated item image file guid {0}." -f $fg)
+}
+
+function Resolve-IllustrativeImageCategoryGuid {
+  param(
+    [hashtable]$Headers,
+    [string]$ApiRoot
+  )
+  $cats = Invoke-ArenaJson -Uri "$ApiRoot/settings/files/categories" -Headers $Headers
+  if (-not $cats.results) { throw 'Could not fetch file categories.' }
+  $catKey = 'illustrative image'
+  $matchedCat = $cats.results | Where-Object {
+    $_.assignable -eq $true -and (
+      ($_.name -ne $null -and $_.name.ToString().ToLowerInvariant() -eq $catKey) -or
+      ($_.path -ne $null -and $_.path.ToString().ToLowerInvariant() -eq $catKey)
+    )
+  } | Select-Object -First 1
+  if (-not $matchedCat) {
+    $matchedCat = $cats.results | Where-Object {
+      $_.assignable -eq $true -and $_.path -ne $null -and $_.path.ToString().ToLowerInvariant().EndsWith("\$catKey")
+    } | Select-Object -First 1
+  }
+  if (-not $matchedCat) {
+    throw "File category 'Illustrative Image' was not found in this workspace."
+  }
+  return "$($matchedCat.guid)".Trim()
+}
+
+function New-ArenaFileFromLocalPath {
+  param(
+    [Parameter(Mandatory = $true)] [string]$FilePath,
+    [Parameter(Mandatory = $true)] [string]$Title,
+    [Parameter(Mandatory = $true)] [string]$CategoryGuid,
+    [Parameter(Mandatory = $true)] [string]$SessionId,
+    [Parameter(Mandatory = $true)] [string]$ApiRoot,
+    [string]$Author = ''
+  )
+  if (-not (Test-Path -LiteralPath $FilePath)) { throw "Item image file not found: $FilePath" }
+  Add-Type -AssemblyName System.Net.Http -ErrorAction Stop
+  $fileInfo = Get-Item -LiteralPath $FilePath
+  $fileName = $fileInfo.Name
+  $ext = [System.IO.Path]::GetExtension($fileName).TrimStart('.')
+  if ([string]::IsNullOrWhiteSpace($ext)) { $ext = 'bin' }
+  $boundary = [System.Guid]::NewGuid().ToString('N')
+  $enc = [System.Text.Encoding]::UTF8
+  $LF = "`r`n"
+  $bodyStream = New-Object System.IO.MemoryStream
+
+  function Write-StringToStream {
+    param([System.IO.MemoryStream]$Stream, [string]$Text)
+    $b = $enc.GetBytes($Text)
+    $Stream.Write($b, 0, $b.Length)
+  }
+  function Add-MultipartField {
+    param([System.IO.MemoryStream]$Stream, [string]$Boundary, [string]$Name, [string]$Value)
+    if ($null -eq $Value) { $Value = '' }
+    $part = "--$Boundary$LF" +
+            "Content-Disposition: form-data; name=`"$Name`"$LF$LF" +
+            "$Value$LF"
+    Write-StringToStream -Stream $Stream -Text $part
+  }
+  function Add-MultipartFile {
+    param(
+      [System.IO.MemoryStream]$Stream,
+      [string]$Boundary,
+      [string]$Name,
+      [string]$FileName,
+      [byte[]]$Bytes
+    )
+    $header = "--$Boundary$LF" +
+              "Content-Disposition: form-data; name=`"$Name`"; filename=`"$FileName`"$LF" +
+              "Content-Type: application/octet-stream$LF$LF"
+    Write-StringToStream -Stream $Stream -Text $header
+    $Stream.Write($Bytes, 0, $Bytes.Length)
+    Write-StringToStream -Stream $Stream -Text $LF
+  }
+
+  Add-MultipartField $bodyStream $boundary 'storageMethodName' 'FILE'
+  Add-MultipartField $bodyStream $boundary 'category.guid'     $CategoryGuid
+  Add-MultipartField $bodyStream $boundary 'title'             $Title
+  Add-MultipartField $bodyStream $boundary 'edition'           '1'
+  Add-MultipartField $bodyStream $boundary 'format'            $ext
+  Add-MultipartField $bodyStream $boundary 'private'           'false'
+  if (-not [string]::IsNullOrWhiteSpace($Author)) {
+    Add-MultipartField $bodyStream $boundary 'author.fullName' $Author
+  }
+  $fileBytes = [System.IO.File]::ReadAllBytes($FilePath)
+  Add-MultipartFile $bodyStream $boundary 'content' $fileName $fileBytes
+  Write-StringToStream -Stream $bodyStream -Text ("--$boundary--$LF")
+  $bodyBytes = $bodyStream.ToArray()
+
+  $httpClient = New-Object System.Net.Http.HttpClient
+  $httpClient.Timeout = [TimeSpan]::FromMinutes(5)
+  $httpClient.DefaultRequestHeaders.Add('arena_session_id', $SessionId)
+  $reqContent = New-Object System.Net.Http.ByteArrayContent (,$bodyBytes)
+  $reqContent.Headers.ContentType =
+    [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("multipart/form-data; boundary=$boundary")
+  try {
+    $resp = $httpClient.PostAsync("$ApiRoot/files", $reqContent).GetAwaiter().GetResult()
+  } catch {
+    throw "Arena POST /files transport error: $($_.Exception.Message)"
+  }
+  $respBody = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+  if (-not $resp.IsSuccessStatusCode) {
+    throw ("Arena POST /files returned {0}: {1}" -f [int]$resp.StatusCode, $respBody)
+  }
+  $fileGuid = $null
+  if ($resp.Headers.Contains('X-Arena-FileGuid')) {
+    $fileGuid = ($resp.Headers.GetValues('X-Arena-FileGuid') | Select-Object -First 1)
+  }
+  if ([string]::IsNullOrWhiteSpace($fileGuid) -and -not [string]::IsNullOrWhiteSpace($respBody)) {
+    try { $fileGuid = ($respBody | ConvertFrom-Json).guid } catch {}
+  }
+  if ([string]::IsNullOrWhiteSpace($fileGuid)) {
+    throw "File upload returned no file GUID. Body: $respBody"
+  }
+  Write-Host ("  Uploaded item image '{0}' ({1} bytes) -> {2}" -f $fileName, $fileInfo.Length, $fileGuid)
+  return "$fileGuid".Trim()
 }
 
 function Normalize-ArenaItemUom([string]$raw) {
@@ -213,6 +421,79 @@ function Get-ArenaNumberFormatValueFields {
   return @($out)
 }
 
+function Get-ArenaBasicItemNumberFormat {
+  <#
+  Prefer workspace "Basic Item Number" (single FREE_TEXT field) for forcing an exact part number.
+  Arena WDTS P/N uses AUTO_SEQUENCE for the last segment and ignores any value sent for that field.
+  #>
+  param(
+    [Parameter(Mandatory)][hashtable]$Headers,
+    [Parameter(Mandatory)][string]$ApiRoot
+  )
+  $list = $null
+  try {
+    $list = Invoke-ArenaJson -Uri "$ApiRoot/settings/items/numberformats" -Headers $Headers
+  } catch {
+    return $null
+  }
+  if (-not $list -or -not $list.results) { return $null }
+
+  $fallback = $null
+  foreach ($row in @($list.results)) {
+    $g = "$($row.guid)".Trim()
+    if (-not $g) { continue }
+    $full = $null
+    try {
+      $full = Invoke-ArenaJson -Uri "$ApiRoot/settings/items/numberformats/$g" -Headers $Headers
+    } catch {
+      continue
+    }
+    if (-not $full -or -not $full.fields) { continue }
+    $valFields = @(Get-ArenaNumberFormatValueFields -FieldDefs @($full.fields))
+    if ($valFields.Count -ne 1) { continue }
+    $t = ("$($valFields[0].type)").Trim().ToUpperInvariant()
+    if ($t -ne 'FREE_TEXT') { continue }
+    $fieldGuid = "$($valFields[0].guid)".Trim()
+    if (-not $fieldGuid) { continue }
+    $name = if ("$($full.name)".Trim()) { "$($full.name)".Trim() } elseif ("$($row.name)".Trim()) { "$($row.name)".Trim() } else { $g }
+    $resolved = [ordered]@{
+      guid      = $(if ("$($full.guid)".Trim()) { "$($full.guid)".Trim() } else { $g })
+      fieldGuid = $fieldGuid
+      name      = $name
+    }
+    if ($name -ieq 'Basic Item Number') { return $resolved }
+    if (-not $fallback) { $fallback = $resolved }
+  }
+  return $fallback
+}
+
+function Set-ArenaItemExactNumber {
+  param(
+    [Parameter(Mandatory)][string]$ItemGuid,
+    [Parameter(Mandatory)][string]$DesiredNumber,
+    [Parameter(Mandatory)][hashtable]$Headers,
+    [Parameter(Mandatory)][string]$ApiRoot
+  )
+  $desired = $DesiredNumber.Trim()
+  $ft = Get-ArenaBasicItemNumberFormat -Headers $Headers -ApiRoot $ApiRoot
+  if (-not $ft) {
+    throw (
+      "Arena assigned a different item number than requested, and no FREE_TEXT " +
+      "'Basic Item Number' format is available to renumber item $ItemGuid to '$desired'."
+    )
+  }
+  $body = @{
+    numberFormat = @{
+      guid   = $ft.guid
+      fields = @(@{ guid = $ft.fieldGuid; value = $desired })
+    }
+  } | ConvertTo-Json -Depth 6
+  Write-Host (
+    "  Requested number differs from Arena auto-sequence; renumbering via '$($ft.name)' to '$desired'."
+  ) -ForegroundColor DarkYellow
+  return (Invoke-ArenaJsonPostWithErrorBody -Uri "$ApiRoot/items/$ItemGuid" -Headers $Headers -Body $body -Method Put)
+}
+
 function Get-ArenaNumberFormatPrimaryDelimiter {
   param([object]$FieldDefs)
   foreach ($fd in @($FieldDefs)) {
@@ -255,6 +536,10 @@ function Test-PartNumberMatchesArenaNumberFormatFields {
         if ("$($pv.value)" -eq $seg) { $hit = $true; break }
       }
       if (-not $hit) { return $false }
+    }
+    elseif ($t -eq 'AUTO_SEQUENCE') {
+      # Sequential segment: digits only (optional zero-padding).
+      if ($seg -notmatch '^\d+$') { return $false }
     }
   }
   return $true
@@ -518,6 +803,12 @@ function Build-NumberFormatForCreateFromSourceItem {
           "(extra field after segment index $segIdx)."
         )
       }
+      # Arena ignores values for AUTO_SEQUENCE on create and assigns the next
+      # sequence itself. Omit those fields from the create body (same as Arena docs).
+      if ($t -eq 'AUTO_SEQUENCE') {
+        $segIdx++
+        continue
+      }
       $gf = "$($fd.guid)".Trim()
       if (-not $gf) { return $null }
       $oldFv = $oldSegs[$segIdx]
@@ -532,6 +823,7 @@ function Build-NumberFormatForCreateFromSourceItem {
         "If the part number does not use hyphens the same way as this format, adjust -NewPartNumber or the source item."
       )
     }
+    if ($outFields.Count -eq 0) { return $null }
     return [ordered]@{ guid = $nfGuid; fields = @($outFields) }
   }
 
@@ -613,6 +905,17 @@ if ($Mode -eq 'Preview') {
 
 # ---------- Execute ----------
 $newPn = $NewPartNumber.Trim()
+$useProductImage = $UseProductImage -match '^(?i)yes|1|true|on$'
+$customImagePath = if ($null -ne $ItemImageFilePath) { $ItemImageFilePath.Trim() } else { '' }
+$passedImageGuid = if ($null -ne $ItemImageFileGuid) { $ItemImageFileGuid.Trim() } else { '' }
+$doDisplayImage = [bool]$passedImageGuid -or $useProductImage -or [bool]$customImagePath
+if (-not $passedImageGuid -and -not $useProductImage -and -not $customImagePath) {
+  throw 'Item image: tick Use Product Image, or choose a local image file.'
+}
+if ($customImagePath -and -not $useProductImage -and -not $passedImageGuid -and -not (Test-Path -LiteralPath $customImagePath)) {
+  throw "Item image file not found: $customImagePath"
+}
+
 $pnNewEnc = [Uri]::EscapeDataString($newPn)
 $exists = Invoke-ArenaJson -Uri "$apiRoot/items?number=$pnNewEnc&limit=1" -Headers $headers
 if ($exists.results -and $exists.results.Count -gt 0) {
@@ -652,6 +955,19 @@ Write-Host ("=== Source revision: number={0} status={1} guid={2} ===" -f $srcRev
 
 $doBom = $CopyBom -match '^(?i)yes|1|true$'
 $doFiles = $CopyFiles -match '^(?i)yes|1|true$'
+
+$sourceProductImageAssoc = $null
+if ($doDisplayImage -and $useProductImage -and -not $passedImageGuid) {
+  try {
+    $srcFilesForImage = Invoke-ArenaJson -Uri "$apiRoot/items/$srcRevGuid/files" -Headers $headers
+  } catch {
+    throw "Could not list files on source revision for Product Image: $($_.Exception.Message)"
+  }
+  $sourceProductImageAssoc = Select-ProductImageAssociation $srcFilesForImage
+  if (-not $sourceProductImageAssoc) {
+    throw "Use Product Image is on, but the source revision has no Illustrative Image / Product Image file."
+  }
+}
 
 $numberFormatBody = Build-NumberFormatForCreateFromSourceItem -SourceItem $src -NewPartNumber $newPn -Headers $headers -ApiRoot $apiRoot
 if (-not $numberFormatBody) {
@@ -705,6 +1021,33 @@ if (-not $newGuid) {
 }
 Write-Host ("  New item guid: {0}" -f $newGuid)
 Write-Host ("  App URL:       {0}" -f $(if ($created.url.app) { $created.url.app } else { '(see Arena)' }))
+
+$assignedNumber = if ($null -ne $created.number) { "$($created.number)".Trim() } else { '' }
+if (-not $assignedNumber) {
+  try {
+    $createdFresh = Invoke-ArenaJson -Uri "$apiRoot/items/$($newGuid)?responseview=full" -Headers $headers
+    if ($createdFresh -and $null -ne $createdFresh.number) {
+      $assignedNumber = "$($createdFresh.number)".Trim()
+    }
+  } catch {}
+}
+Write-Host ("  Arena number:  {0}" -f $(if ($assignedNumber) { $assignedNumber } else { '(none)' }))
+if ($assignedNumber -ne $newPn) {
+  $renamed = Set-ArenaItemExactNumber -ItemGuid $newGuid -DesiredNumber $newPn -Headers $headers -ApiRoot $apiRoot
+  $assignedNumber = if ($renamed -and $null -ne $renamed.number) { "$($renamed.number)".Trim() } else { '' }
+  if (-not $assignedNumber -or $assignedNumber -ne $newPn) {
+    # Confirm with GET in case PUT response omits number.
+    $confirm = Invoke-ArenaJson -Uri "$apiRoot/items/$($newGuid)?responseview=full" -Headers $headers
+    $assignedNumber = if ($confirm -and $null -ne $confirm.number) { "$($confirm.number)".Trim() } else { $assignedNumber }
+  }
+  if ($assignedNumber -ne $newPn) {
+    throw (
+      "Created item guid=$newGuid but could not set number to '$newPn' " +
+      "(Arena has '$assignedNumber'). Open the item in Arena and correct the number, or delete it and retry."
+    )
+  }
+  Write-Host ("  Confirmed number: {0}" -f $assignedNumber) -ForegroundColor DarkGreen
+}
 
 $newRevs = Invoke-ArenaJson -Uri "$apiRoot/items/$newGuid/revisions" -Headers $headers
 $newWorking = $newRevs.results | Where-Object { $_.status -eq 0 } | Select-Object -First 1
@@ -775,6 +1118,10 @@ if ($doFiles) {
         Write-Warning "Skipping locked file $($a.file.title)."
         continue
       }
+      if ($doDisplayImage -and (Test-IsIllustrativeImageCategory $a)) {
+        Write-Host ("  Skipping Illustrative Image (handled as item image): {0}" -f $a.file.title)
+        continue
+      }
       $fg = "$($a.file.guid)".Trim()
       $assocBody = @{
         latestEditionAssociation = $true
@@ -792,11 +1139,41 @@ if ($doFiles) {
   Write-Host ("  Associated {0} file(s) on new working revision." -f $m)
 }
 
+$linkedImageGuid = ''
+if ($doDisplayImage) {
+  Write-Host '=== Item display image ==='
+  if ($passedImageGuid) {
+    $linkedImageGuid = $passedImageGuid
+    Write-Host ("  Using shared file guid {0}" -f $linkedImageGuid)
+  }
+  elseif ($useProductImage) {
+    $prodAssoc = $sourceProductImageAssoc
+    if (-not $prodAssoc) {
+      throw "Use Product Image is on, but the source revision has no Illustrative Image / Product Image file."
+    }
+    $linkedImageGuid = "$($prodAssoc.file.guid)".Trim()
+    Write-Host ("  Source Product Image: {0} (guid {1})" -f $prodAssoc.file.title, $linkedImageGuid)
+  }
+  else {
+    $revLetterOnly = Get-DuplicateRevLetterOnly $(if ($NewItemRevision.Trim()) { $NewItemRevision.Trim() } else { 'A' })
+    $imageTitle = "Product Image $newPn Rev $revLetterOnly"
+    $catGuid = Resolve-IllustrativeImageCategoryGuid -Headers $headers -ApiRoot $apiRoot
+    $linkedImageGuid = New-ArenaFileFromLocalPath `
+      -FilePath $customImagePath `
+      -Title $imageTitle `
+      -CategoryGuid $catGuid `
+      -SessionId $sessionId `
+      -ApiRoot $apiRoot `
+      -Author $OwnerFullName
+  }
+  Add-ArenaRevisionFileAssociation -RevGuid $newWorkingRevGuid -FileGuid $linkedImageGuid -Headers $headers -ApiRoot $apiRoot
+}
+
 Write-Host ''
 if ($BarePcbFollowUp) {
-  Write-Host 'Done. Bare PCB duplicate finished.' -ForegroundColor Green
+  Write-Host 'Done. Bare PCB duplicate finished.' -ForegroundColor DarkGreen
 } else {
-  Write-Host 'Done. Primary duplicate finished.' -ForegroundColor Green
+  Write-Host 'Done. Primary duplicate finished.' -ForegroundColor DarkGreen
 }
 
 function Convert-PcbaTextToPcbBareText {
@@ -856,6 +1233,14 @@ if ($alsoBare) {
   }
   Write-Host ''
 
+  # Hashtable splat binds by name. An array of '-Name','value' pairs is positional,
+  # so the image guid is left over and the follow-up call fails to bind.
+  $bareImageArgs = @{}
+  if ($linkedImageGuid) {
+    $bareImageArgs.UseProductImage = 'no'
+    $bareImageArgs.ItemImageFileGuid = $linkedImageGuid
+  }
+
   & $PSCommandPath `
     -OldPartNumber $bareOld `
     -NewPartNumber $bareNew `
@@ -872,12 +1257,13 @@ if ($alsoBare) {
     -BarePcbFollowUp `
     -Email $Email `
     -WorkspaceId $WorkspaceId `
-    -BaseUrl $BaseUrl
+    -BaseUrl $BaseUrl `
+    @bareImageArgs
   if ($LASTEXITCODE -ne 0) {
     throw "Bare PCB duplicate failed (exit $LASTEXITCODE)."
   }
 }
 
 Write-Host ''
-Write-Host 'Done. Duplicate item flow finished.' -ForegroundColor Green
+Write-Host 'Done. Duplicate item flow finished.' -ForegroundColor DarkGreen
 exit 0

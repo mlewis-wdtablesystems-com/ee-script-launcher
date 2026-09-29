@@ -101,5 +101,5 @@ $after = if ($updated -and $null -ne $updated.revisionNumber) {
 } else {
   $newRev
 }
-Write-Host ("  Updated. revisionNumber={0}" -f $after) -ForegroundColor Green
+Write-Host ("  Updated. revisionNumber={0}" -f $after) -ForegroundColor DarkGreen
 exit 0
