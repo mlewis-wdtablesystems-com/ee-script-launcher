@@ -18,6 +18,7 @@
   Also verifies:
     - PCBA revision letter matches PCB revision letter (e.g. A1 vs A).
     - Fabrication zip title revision letter matches the PCBA revision letter.
+    - No file attached to the PCBA or PCB has _DRAFT in its file name or title.
 
   The expected revision letter is determined as:
     1. -ExpectedRevision parameter, if given.
@@ -362,6 +363,20 @@ function Test-RevMatch {
   return ($FileRev -eq $Expected)
 }
 
+function Get-ArenaAttachmentDraftLabel {
+  param($Assoc)
+  if (-not $Assoc -or -not $Assoc.file) { return $null }
+  foreach ($raw in @(
+      $Assoc.file.title,
+      $Assoc.file.name,
+      $Assoc.file.fileName
+    )) {
+    $text = ("$raw").Trim()
+    if ($text -and $text -match '(?i)_DRAFT') { return $text }
+  }
+  return $null
+}
+
 function Report-Item {
   param(
     $Info,
@@ -399,6 +414,20 @@ function Report-Item {
 
   $files = @(Get-FilesOnRev -RevGuid $Info.SelectedGuid)
   Write-Output ("  Files on {0} rev: {1}" -f $revModeLabel, $files.Count)
+
+  foreach ($a in $files) {
+    $draftLabel = Get-ArenaAttachmentDraftLabel -Assoc $a
+    if (-not $draftLabel) { continue }
+    $catName = ''
+    if ($a.file.category -and $a.file.category.name) {
+      $catName = ("$($a.file.category.name)").Trim()
+    }
+    $where = if ($catName) { " [$catName]" } else { '' }
+    Write-Output ("    DRAFT{0}: '{1}'" -f $where, $draftLabel)
+    $msg = "$Label $($Info.ItemNumber): draft file attached '$draftLabel'."
+    [void]$script:problems.Add($msg)
+    Write-Output ("ERROR: {0}" -f $msg)
+  }
 
   foreach ($cat in $RequiredCategories) {
     $catName = $cat.Name

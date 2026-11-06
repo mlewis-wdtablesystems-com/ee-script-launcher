@@ -92,7 +92,7 @@ function Invoke-Step {
 
 Invoke-Step -Title 'Fabrication zip (upload existing file only)' -Action {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $fabWorkflow `
-    -PartNumber $pcbaPn -UploadToArena -UseExistingFile
+    -PartNumber $pcbaPn -UploadToArena
 }
 
 if ($IncludePickPlace) {
@@ -100,7 +100,7 @@ if ($IncludePickPlace) {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ppWorkflow `
       -PartNumber $pcbaPn `
       -RevisionOverride $pcbaRev `
-      -CreateZip -UploadToArena -UseExistingFile
+      -CreateZip -UploadToArena
   }
 } else {
   Write-Host ''

@@ -823,7 +823,8 @@ button.run.discover-prefill {
 .duplicate-upload-prompt,
 .zip-overwrite-prompt,
 .confirm-upload-prompt,
-.missing-schematic-prompt {
+.missing-schematic-prompt,
+.missing-draft-files-prompt {
   padding: 10px 12px;
   border-radius: var(--radius);
   background: var(--surface-2);
@@ -843,7 +844,8 @@ button.run.discover-prefill {
   background: var(--accent-muted);
 }
 
-.missing-schematic-prompt {
+.missing-schematic-prompt,
+.missing-draft-files-prompt {
   border: 1px solid var(--warn);
   background: rgba(166, 106, 0, 0.08);
 }
@@ -851,7 +853,8 @@ button.run.discover-prefill {
 .duplicate-upload-msg,
 .zip-overwrite-msg,
 .confirm-upload-msg,
-.missing-schematic-msg {
+.missing-schematic-msg,
+.missing-draft-files-msg {
   margin: 0 0 8px;
   font-size: 13px;
   color: var(--text);
@@ -860,7 +863,8 @@ button.run.discover-prefill {
 .duplicate-upload-actions,
 .zip-overwrite-actions,
 .confirm-upload-actions,
-.missing-schematic-actions {
+.missing-schematic-actions,
+.missing-draft-files-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;

@@ -232,14 +232,26 @@ function Find-FabricationZipInProdFolder {
   $candidates = @(Get-ChildItem -LiteralPath $ProdDocDir -File -ErrorAction SilentlyContinue |
     Where-Object {
       $_.Extension -ieq '.zip' -and
-      $_.Name -imatch '^Fabrication\s+.+\s+Rev\s+[A-Za-z0-9]+\.zip$'
+      $_.Name -imatch '^Fabrication\s+.+\s+Rev\s+[A-Za-z0-9]+(_DRAFT)?\.zip$'
     })
   if ($PcbPartNumber) {
     $forPart = @($candidates | Where-Object { $_.Name -imatch [regex]::Escape($PcbPartNumber) })
     if ($forPart.Count -gt 0) { $candidates = $forPart }
   }
-  if ($candidates.Count -eq 0) { return $null }
-  return ($candidates | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
+  if ($candidates.Count -eq 0) { return @() }
+  return @($candidates | Sort-Object LastWriteTimeUtc -Descending)
+}
+
+function Resolve-FabricationZipForOrder {
+  param([object[]]$Candidates)
+  $list = @($Candidates | Where-Object { $_ })
+  if ($list.Count -eq 0) { return $null }
+  $finals = @($list | Where-Object { $_.Name -notmatch '(?i)_DRAFT' })
+  if ($finals.Count -gt 0) {
+    return ($finals | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
+  }
+  $draft = $list | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+  throw "Fabrication zip is still a draft ('$($draft.Name)'). Upload Zip File to Arena FINAL before ordering boards from Simon."
 }
 
 function Get-RevisionFromFabricationZipFileName {
@@ -256,7 +268,9 @@ function Ensure-FabricationZipForOrderBoard {
     [string]$ProdDocDir,
     [string]$PcbPartNumber
   )
-  $found = Find-FabricationZipInProdFolder -ProdDocDir $ProdDocDir -PcbPartNumber $PcbPartNumber
+  $found = Resolve-FabricationZipForOrder -Candidates @(
+    Find-FabricationZipInProdFolder -ProdDocDir $ProdDocDir -PcbPartNumber $PcbPartNumber
+  )
   if ($found) {
     Write-Host "  Using existing Fabrication zip: $($found.FullName)"
     return $found.FullName
@@ -277,7 +291,9 @@ function Ensure-FabricationZipForOrderBoard {
     throw (Get-AltiumZipBuildFailureMessage -OutputText $text -Label 'Fabrication zip' -ExitCode $LASTEXITCODE)
   }
 
-  $found = Find-FabricationZipInProdFolder -ProdDocDir $ProdDocDir -PcbPartNumber $PcbPartNumber
+  $found = Resolve-FabricationZipForOrder -Candidates @(
+    Find-FabricationZipInProdFolder -ProdDocDir $ProdDocDir -PcbPartNumber $PcbPartNumber
+  )
   if (-not $found) {
     throw "Fabrication zip still missing after build in `"$ProdDocDir`"."
   }

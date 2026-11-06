@@ -66,6 +66,8 @@ class FieldSpec:
     kind: Literal["text", "select", "textarea", "file", "loadable_select", "checkbox"] = "text"
     options: list[str] = field(default_factory=list)
     accept: str = ""  # for kind="file": HTML accept attribute, e.g. ".pdf,.zip"
+    # Checkboxes that share a non-empty group: at most one may be checked.
+    exclusive_group: str = ""
     # for kind="loadable_select": which field names from the discovery
     # response should also be exposed to build_command, named
     # "<field>__<meta>", e.g. existing_file__edition.
@@ -129,6 +131,8 @@ class FunctionSpec:
     confirm_upload_prompt: bool = False
     # If true, launcher offers "Send Email without Schematic?" when script exits 13.
     missing_schematic_prompt: bool = False
+    # If true, launcher asks whether to send when no _DRAFT zip exists (script exits 14).
+    missing_draft_files_prompt: bool = False
     # With discovery: "Load name & description" applies JSON `prefill` to same-named form fields.
     discovery_prefill: bool = False
     hidden: bool = False
@@ -211,6 +215,13 @@ def _allow_missing_schematic_args(v: dict[str, str]) -> list[str]:
     am = (v.get("allow_missing_schematic") or "").strip().lower()
     if am in ("1", "true", "yes", "on"):
         return ["-AllowMissingSchematic"]
+    return []
+
+
+def _allow_missing_draft_files_args(v: dict[str, str]) -> list[str]:
+    am = (v.get("allow_missing_draft_files") or "").strip().lower()
+    if am in ("1", "true", "yes", "on"):
+        return ["-AllowMissingDraftFiles"]
     return []
 
 
@@ -561,7 +572,9 @@ FUNCTIONS: list[FunctionSpec] = [
             "(all steps run even if one fails): remove Illustrative Image from the bare PCB "
             "if wrongly linked, Arena checked-in revision letter vs Altium production folder, "
             "Check Pick and Place File with Arena BOM, Check PCBA and PCB Files, "
-            "and Compare Working and Checked In Revision."
+            "and Compare Working and Checked In Revision. "
+            "The PCBA and PCB file check fails if any file attached to those items "
+            "has _DRAFT in the file name."
         ),
         fields=[
             FieldSpec(
@@ -1261,12 +1274,16 @@ FUNCTIONS: list[FunctionSpec] = [
         icon="🚀",
         duplicate_upload_prompt=True,
         zip_overwrite_prompt=True,
+        checkboxes_on_subrow=True,
         title="Fabrication zip",
         description=(
             "Check fabrication outputs and optionally create "
             "'Fabrication PPP-20/25-YYY Rev <letter>.zip', then optionally upload or "
             "replace 'Altium Gerber Files' on the bare-board Arena working revision. "
-            "Use checkboxes to run only the steps you need."
+            "Upload Zip File to Arena FINAL uses the normal zip name. "
+            "Upload to Arena as Draft renames that zip with _DRAFT before upload. "
+            "Only one of those upload options can be selected. "
+            "Leave Create Zip unchecked to upload a zip already in the production folder."
         ),
         fields=[
             FieldSpec(
@@ -1283,15 +1300,17 @@ FUNCTIONS: list[FunctionSpec] = [
             ),
             FieldSpec(
                 name="upload_to_arena",
-                label="Upload Zip File to Arena",
+                label="Upload Zip File to Arena FINAL",
                 kind="checkbox",
                 default="",
+                exclusive_group="arena_zip_upload",
             ),
             FieldSpec(
-                name="use_existing_file",
-                label="Use Existing File",
+                name="upload_as_draft",
+                label="Upload to Arena as Draft",
                 kind="checkbox",
                 default="",
+                exclusive_group="arena_zip_upload",
             ),
         ],
         background=False,
@@ -1301,7 +1320,7 @@ FUNCTIONS: list[FunctionSpec] = [
             v["part_number"],
             *_optional_switch(v, "create_zip", "-CreateZip", default=True),
             *_optional_switch(v, "upload_to_arena", "-UploadToArena"),
-            *_optional_switch(v, "use_existing_file", "-UseExistingFile"),
+            *_optional_switch(v, "upload_as_draft", "-UploadAsDraft"),
             *_force_upload_args(v),
             *_force_zip_overwrite_args(v),
         ),
@@ -1435,7 +1454,11 @@ FUNCTIONS: list[FunctionSpec] = [
             "Optionally zip the production 'Pick Place' folder into "
             "'Pick Place PPP-TT-XXX Rev <letter><number>.zip', then optionally upload or "
             "replace 'Pick and Place' on the PCBA Arena working revision. Revision entry "
-            "must match the Altium revision letter; the number you enter is used in the zip name."
+            "must match the Altium revision letter; the number you enter is used in the zip name. "
+            "Upload Zip File to Arena FINAL uses the normal zip name. "
+            "Upload to Arena as Draft renames that zip with _DRAFT before upload. "
+            "Only one of those upload options can be selected. "
+            "Leave Create Zip unchecked to upload a zip already in the production folder."
         ),
         fields=[
             FieldSpec(
@@ -1458,15 +1481,17 @@ FUNCTIONS: list[FunctionSpec] = [
             ),
             FieldSpec(
                 name="upload_to_arena",
-                label="Upload Zip File to Arena",
+                label="Upload Zip File to Arena FINAL",
                 kind="checkbox",
                 default="",
+                exclusive_group="arena_zip_upload",
             ),
             FieldSpec(
-                name="use_existing_file",
-                label="Use Existing File",
+                name="upload_as_draft",
+                label="Upload to Arena as Draft",
                 kind="checkbox",
                 default="",
+                exclusive_group="arena_zip_upload",
             ),
         ],
         background=False,
@@ -1478,7 +1503,7 @@ FUNCTIONS: list[FunctionSpec] = [
             (v.get("revision") or "").strip(),
             *_optional_switch(v, "create_zip", "-CreateZip", default=True),
             *_optional_switch(v, "upload_to_arena", "-UploadToArena"),
-            *_optional_switch(v, "use_existing_file", "-UseExistingFile"),
+            *_optional_switch(v, "upload_as_draft", "-UploadAsDraft"),
             *_force_upload_args(v),
             *_force_zip_overwrite_args(v),
         ),
@@ -1535,6 +1560,38 @@ FUNCTIONS: list[FunctionSpec] = [
             "-Urgency",
             (v.get("urgency") or "unstated").strip(),
             *_allow_missing_schematic_args(v),
+        ),
+    ),
+    FunctionSpec(
+        id="send_drafts_to_neel",
+        group="Altium",
+        icon="📨",
+        title="Send Drafts to Neel",
+        description=(
+            "Draft an Outlook email to Neel "
+            "(nbhattacharya@wdtablesystems.com, CC sgraham@wdtablesystems.com and "
+            "eosullivan@wdtablesystems.com) with the newest Fabrication and "
+            "Pick & Place _DRAFT zips from the production folder, plus the schematic PDF "
+            "when one is beside the .PrjPcb or titled 'Schematics of …' under a PDF folder. "
+            "If neither _DRAFT zip exists, asks whether to send anyway. "
+            "A missing schematic is a warning only and is left off the email. "
+            "Opens in New Outlook (olk.exe) when Classic COM is unavailable."
+        ),
+        fields=[
+            FieldSpec(
+                name="part_number",
+                label="Part number",
+                placeholder="272-10-001 (PCBA or bare board)",
+                required=True,
+            ),
+        ],
+        background=False,
+        missing_draft_files_prompt=True,
+        build_command=lambda v: _ps(
+            SCRIPTS_DIR / "Send-DraftsToNeel.ps1",
+            "-PartNumber",
+            v["part_number"],
+            *_allow_missing_draft_files_args(v),
         ),
     ),
     # ----- Altium MCP (live bridge) -----
@@ -1922,6 +1979,7 @@ LAUNCHER_GROUP_SCRIPT_ORDER: dict[str, list[str]] = {
         "altium_fabrication_zip_workflow",
         "altium_gerber_zip_workflow",
         "order_boards_from_simon",
+        "send_drafts_to_neel",
         "altium_bom_export_workflow",
         "altium_pickplace_zip_workflow",
         "arena_sync_product_image",

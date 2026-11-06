@@ -9,17 +9,20 @@
   Run Check and Build Fabrication Zip (Open-AltiumPartFolder -Open FabricationZip).
 
 .PARAMETER UploadToArena
-  Upload or replace "Altium Gerber Files" on the bare-board Arena working revision.
+  Upload or replace "Altium Gerber Files" on the bare-board Arena working revision
+  using the normal zip file name (FINAL).
 
-.PARAMETER UseExistingFile
-  When uploading: use the zip already in the production folder; do not build if missing.
-  Ignored unless UploadToArena is set. When CreateZip is also set, the zip is built first.
+.PARAMETER UploadAsDraft
+  Same Arena upload as -UploadToArena, after renaming the zip so the file name
+  ends in _DRAFT before the extension. Mutually exclusive with -UploadToArena.
+
+  Leave -CreateZip off to upload a zip that is already in the production folder.
 #>
 param(
   [Parameter(Mandatory = $true)] [string]$PartNumber,
   [switch]$CreateZip,
   [switch]$UploadToArena,
-  [switch]$UseExistingFile,
+  [switch]$UploadAsDraft,
   [switch]$ForceUpload,
   [switch]$ForceZipOverwrite
 )
@@ -33,12 +36,11 @@ foreach ($p in @($openScript, $syncScript)) {
   if (-not (Test-Path -LiteralPath $p)) { throw "Required script missing: $p" }
 }
 
-if (-not $CreateZip -and -not $UploadToArena) {
-  throw 'Enable at least one option: Create Zip and/or Upload Zip File to Arena.'
+if ($UploadToArena -and $UploadAsDraft) {
+  throw 'Select only one Arena upload option: Upload Zip File to Arena FINAL or Upload to Arena as Draft.'
 }
-if ($UseExistingFile -and -not $UploadToArena) {
-  Write-Warning 'Use Existing File only applies when Upload Zip File to Arena is enabled; ignoring.'
-  $UseExistingFile = $false
+if (-not $CreateZip -and -not $UploadToArena -and -not $UploadAsDraft) {
+  throw 'Enable at least one option: Create Zip, Upload Zip File to Arena FINAL, and/or Upload to Arena as Draft.'
 }
 
 $pn = $PartNumber.Trim()
@@ -55,18 +57,25 @@ if ($CreateZip) {
   Invoke-NestedLauncherPowerShell -ArgumentList $openArgs -StepLabel 'Check and Build Fabrication Zip' | Out-Null
 }
 
-if ($UploadToArena) {
+if ($UploadToArena -or $UploadAsDraft) {
   Write-Host ''
-  Write-Host '=== Upload Zip File to Arena (Gerbers) ==='
-  $syncArgs = @('-File', $syncScript, '-PartNumber', $pn)
-  if ($CreateZip -or $UseExistingFile) {
-    $syncArgs += '-SkipZipBuildIfMissing'
+  if ($UploadAsDraft) {
+    Write-Host '=== Upload to Arena as Draft (Gerbers) ==='
+  } else {
+    Write-Host '=== Upload Zip File to Arena FINAL (Gerbers) ==='
   }
-  if ($ForceUpload) {
-    $syncArgs += '-ForceUpload'
-  }
+  # Create Zip already built the file. With Create Zip off, use the zip already
+  # in the production folder and do not build one here.
+  $syncArgs = @('-File', $syncScript, '-PartNumber', $pn, '-SkipZipBuildIfMissing')
+  if ($UploadAsDraft) { $syncArgs += '-AsDraft' }
+  if ($ForceUpload) { $syncArgs += '-ForceUpload' }
   $syncInvokeArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass') + $syncArgs
-  Invoke-NestedLauncherPowerShell -ArgumentList $syncInvokeArgs -StepLabel 'Upload fabrication zip to Arena' | Out-Null
+  $stepLabel = if ($UploadAsDraft) {
+    'Upload fabrication zip to Arena as draft'
+  } else {
+    'Upload fabrication zip to Arena'
+  }
+  Invoke-NestedLauncherPowerShell -ArgumentList $syncInvokeArgs -StepLabel $stepLabel | Out-Null
 }
 
 Write-Host ''

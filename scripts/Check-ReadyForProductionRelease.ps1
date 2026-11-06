@@ -10,7 +10,8 @@
     1. Remove Illustrative Image from PCB bare board (working revision), if present
     2. Arena checked-in revision letter vs Altium production folder
     3. Check Pick and Place File with Arena BOM (working revision)
-    4. Check PCBA and PCB Files (working revision)
+    4. Check PCBA and PCB Files (working revision). Fails if any file attached
+       to the PCBA or PCB has _DRAFT in the file name.
     5. Compare Working and Checked In Revision
 
   All steps run even when an earlier step fails. Exits non-zero if any step failed.

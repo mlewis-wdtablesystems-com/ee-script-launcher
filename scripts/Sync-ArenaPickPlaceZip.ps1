@@ -30,6 +30,10 @@
   Revision for the zip name (letter + number, e.g. D1). Required when Altium folder/project
   has no detectable revision letter. When Altium revision is detectable, letter must match.
 
+.PARAMETER AsDraft
+  Rename the zip to add _DRAFT before the extension, then upload that file.
+  If the normal zip is missing and the _DRAFT zip is already present, that file is uploaded.
+
 .EXAMPLE
   .\Sync-ArenaPickPlaceZip.ps1 -PartNumber 294-10-022
   .\Sync-ArenaPickPlaceZip.ps1 -PartNumber 294-20-022
@@ -38,7 +42,8 @@ param(
   [Parameter(Mandatory = $true)] [string]$PartNumber,
   [string]$RevisionOverride = '',
   [switch]$ForceUpload,
-  [switch]$SkipZipBuildIfMissing
+  [switch]$SkipZipBuildIfMissing,
+  [switch]$AsDraft
 )
 
 $ErrorActionPreference = 'Stop'
@@ -135,6 +140,23 @@ function Test-ArenaDuplicateFileTitleOnRev {
   return $false
 }
 
+function Rename-ProductionZipAsDraft {
+  param([Parameter(Mandatory = $true)][string]$ZipPath)
+  $leaf = Split-Path -Leaf $ZipPath
+  if ($leaf -match '(?i)_DRAFT\.zip$') { return $ZipPath }
+  if ($leaf -notmatch '(?i)\.zip$') {
+    throw "Expected a .zip file to rename as draft: $ZipPath"
+  }
+  $draftLeaf = $leaf -replace '(?i)\.zip$', '_DRAFT.zip'
+  $dest = Join-Path (Split-Path -Parent $ZipPath) $draftLeaf
+  if (Test-Path -LiteralPath $dest) {
+    Remove-Item -LiteralPath $dest -Force
+  }
+  Rename-Item -LiteralPath $ZipPath -NewName $draftLeaf
+  Write-Host "  Renamed zip for draft upload: $dest"
+  return $dest
+}
+
 # ---------- 1) Altium resolve ----------
 Write-Host "=== Altium resolve ==="
 $resolved = Get-ResolveJsonFromOpenScript -Pn $PartNumber.Trim()
@@ -173,33 +195,47 @@ if (-not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
 
 $zipBase = "Pick Place $canonical Rev $zipRev"
 $zipPath = Join-Path $prodDocDir ($zipBase + '.zip')
+$draftPath = Join-Path $prodDocDir ($zipBase + '_DRAFT.zip')
 Write-Host "  Expected zip:               $zipPath"
+if ($AsDraft) {
+  Write-Host "  Draft zip name:             $draftPath"
+}
 
 # ---------- 2) Build zip if missing ----------
 if (-not (Test-Path -LiteralPath $zipPath)) {
-  if ($SkipZipBuildIfMissing) {
-    throw "Pick & Place zip not found (upload-only / use existing file): $zipPath"
+  if ($AsDraft -and (Test-Path -LiteralPath $draftPath)) {
+    Write-Host "  Using existing draft zip:   $draftPath"
+    $zipPath = $draftPath
   }
-  Write-Host ''
-  Write-Host "=== Pick & Place zip not found; running Build Pick & Place zip ==="
-  $buildArgs = @(
-    '-NoProfile', '-ExecutionPolicy', 'Bypass',
-    '-File', $openScript,
-    '-PartNumber', $PartNumber.Trim(),
-    '-Open', 'PickPlaceZip'
-  )
-  if (-not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
-    $buildArgs += '-RevisionOverride', $RevisionOverride.Trim()
+  elseif ($SkipZipBuildIfMissing) {
+    throw "Pick & Place zip not found (Create Zip was not selected): $zipPath"
   }
-  $ppOut = & powershell.exe @buildArgs 2>&1
-  Write-Host (($ppOut | ForEach-Object { "$_" }) -join "`n")
-  if ($LASTEXITCODE -ne 0) {
-    throw "Build Pick & Place zip failed (exit $LASTEXITCODE)."
+  else {
+    Write-Host ''
+    Write-Host "=== Pick & Place zip not found; running Build Pick & Place zip ==="
+    $buildArgs = @(
+      '-NoProfile', '-ExecutionPolicy', 'Bypass',
+      '-File', $openScript,
+      '-PartNumber', $PartNumber.Trim(),
+      '-Open', 'PickPlaceZip'
+    )
+    if (-not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
+      $buildArgs += '-RevisionOverride', $RevisionOverride.Trim()
+    }
+    $ppOut = & powershell.exe @buildArgs 2>&1
+    Write-Host (($ppOut | ForEach-Object { "$_" }) -join "`n")
+    if ($LASTEXITCODE -ne 0) {
+      throw "Build Pick & Place zip failed (exit $LASTEXITCODE)."
+    }
   }
 }
 
 if (-not (Test-Path -LiteralPath $zipPath)) {
   throw "Pick & Place zip still missing after build: $zipPath"
+}
+
+if ($AsDraft) {
+  $zipPath = Rename-ProductionZipAsDraft -ZipPath $zipPath
 }
 
 $zipItem = Get-Item -LiteralPath $zipPath

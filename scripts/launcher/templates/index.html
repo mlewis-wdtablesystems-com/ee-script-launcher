@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Electronics Engineering Assistant</title>
-  <link rel="stylesheet" href="/static/style.css?v=13" />
+  <link rel="stylesheet" href="/static/style.css?v=14" />
 </head>
 <body>
 {% macro file_input(f) %}
@@ -76,6 +76,7 @@
                   data-zip-overwrite-prompt="{{ '1' if fn.zip_overwrite_prompt else '0' }}"
                   data-confirm-upload-prompt="{{ '1' if fn.confirm_upload_prompt else '0' }}"
                   data-missing-schematic-prompt="{{ '1' if fn.missing_schematic_prompt else '0' }}"
+                  data-missing-draft-files-prompt="{{ '1' if fn.missing_draft_files_prompt else '0' }}"
                   data-discovery-prefill="{{ '1' if fn.discovery_prefill else '0' }}"
                   data-report-view-actions="{{ '1' if fn.report_view_actions else '0' }}"
                 >
@@ -148,6 +149,7 @@
                             name="{{ f.name }}"
                             value="1"
                             {% if f.default %}checked{% endif %}
+                            {% if f.exclusive_group %}data-exclusive-group="{{ f.exclusive_group }}"{% endif %}
                           />
                           <span class="checkbox-label">{{ f.label }}</span>
                         </label>
@@ -196,6 +198,7 @@
                             name="{{ f.name }}"
                             value="1"
                             {% if f.default %}checked{% endif %}
+                            {% if f.exclusive_group %}data-exclusive-group="{{ f.exclusive_group }}"{% endif %}
                           />
                           <span class="checkbox-label">{{ f.label }}</span>
                         </label>
@@ -290,6 +293,16 @@
                       <div class="missing-schematic-actions">
                         <button type="button" class="run missing-schematic-proceed">Send Email without Schematic?</button>
                         <button type="button" class="run missing-schematic-cancel">Cancel</button>
+                      </div>
+                    </div>
+                    {% endif %}
+
+                    {% if fn.missing_draft_files_prompt %}
+                    <div class="missing-draft-files-prompt" hidden>
+                      <p class="missing-draft-files-msg">No _DRAFT fabrication or Pick &amp; Place zip was found. Send the email anyway?</p>
+                      <div class="missing-draft-files-actions">
+                        <button type="button" class="run missing-draft-files-proceed">Send anyway</button>
+                        <button type="button" class="run missing-draft-files-cancel">Cancel</button>
                       </div>
                     </div>
                     {% endif %}
@@ -410,6 +423,20 @@
         reflectWorkspace();
       });
     }
+
+    document.addEventListener("change", (event) => {
+      const el = event.target;
+      if (!el || el.type !== "checkbox" || !el.checked) return;
+      const group = el.getAttribute("data-exclusive-group");
+      if (!group) return;
+      const form = el.closest("form");
+      if (!form) return;
+      for (const other of form.querySelectorAll('input[type="checkbox"][data-exclusive-group]')) {
+        if (other !== el && other.getAttribute("data-exclusive-group") === group) {
+          other.checked = false;
+        }
+      }
+    });
 
     // ----- recent part numbers -----
     const RECENT_KEY = "launcher.recent_part_numbers";
@@ -874,6 +901,21 @@
       }
     }
 
+    function missingDraftFilesPromptFromStdout(stdout) {
+      const marker = "---MISSING-DRAFT-FILES-PROMPT---";
+      const s = stdout || "";
+      const i = s.indexOf(marker);
+      if (i < 0) return null;
+      const tail = s.slice(i + marker.length).trim();
+      const line = tail.split(/\r?\n/).find((l) => /^\s*\{/.test(l));
+      if (!line) return { missingDraftFiles: true };
+      try {
+        return JSON.parse(line.trim());
+      } catch {
+        return { missingDraftFiles: true };
+      }
+    }
+
     // ----- per-script-row setup -----
     for (const card of document.querySelectorAll(".script-row")) {
       const fnId = card.dataset.fn;
@@ -914,6 +956,11 @@
       const missSchCancel = missSchWrap?.querySelector(".missing-schematic-cancel");
       const missSchMsg = missSchWrap?.querySelector(".missing-schematic-msg");
       const missingSchematicPromptCard = card.dataset.missingSchematicPrompt === "1";
+      const missDraftWrap = promptStore?.querySelector(".missing-draft-files-prompt");
+      const missDraftProceed = missDraftWrap?.querySelector(".missing-draft-files-proceed");
+      const missDraftCancel = missDraftWrap?.querySelector(".missing-draft-files-cancel");
+      const missDraftMsg = missDraftWrap?.querySelector(".missing-draft-files-msg");
+      const missingDraftFilesPromptCard = card.dataset.missingDraftFilesPrompt === "1";
       const discoveryPrefill = card.dataset.discoveryPrefill === "1";
       const prefillBtn = form.querySelector("button.discover-prefill");
 
@@ -1010,6 +1057,13 @@
         missSchWrap.hidden = !show;
         if (show) mountPromptInOutput(missSchWrap);
         else if (promptStore && missSchWrap.parentElement === outputPromptsHost) promptStore.appendChild(missSchWrap);
+      }
+
+      function setMissingDraftFilesPromptVisible(show) {
+        if (!missDraftWrap) return;
+        missDraftWrap.hidden = !show;
+        if (show) mountPromptInOutput(missDraftWrap);
+        else if (promptStore && missDraftWrap.parentElement === outputPromptsHost) promptStore.appendChild(missDraftWrap);
       }
 
       const fileInput = form.querySelector('input[type="file"][name="file"]');
@@ -1155,6 +1209,7 @@
         setZipOverwritePromptVisible(false);
         setConfirmUploadPromptVisible(false);
         setMissingSchematicPromptVisible(false);
+        setMissingDraftFilesPromptVisible(false);
 
         let fetchInit;
         let url;
@@ -1204,12 +1259,14 @@
             setZipOverwritePromptVisible(false);
             setConfirmUploadPromptVisible(false);
             setMissingSchematicPromptVisible(false);
+            setMissingDraftFilesPromptVisible(false);
           } else {
             const code = data.exit_code != null ? ` (${data.exit_code})` : "";
             const dupPayload = duplicatePromptFromStdout(data.stdout);
             const zipOwPayload = zipOverwritePromptFromStdout(data.stdout);
             const confirmUpPayload = confirmUploadPromptFromStdout(data.stdout);
             const missSchPayload = missingSchematicPromptFromStdout(data.stdout);
+            const missDraftPayload = missingDraftFilesPromptFromStdout(data.stdout);
             const isDupExit =
               duplicatePromptCard && dupWrap && !data.background && data.exit_code === 10 && dupPayload;
             const isZipOwExit =
@@ -1218,6 +1275,8 @@
               confirmUploadPromptCard && confirmUpWrap && !data.background && data.exit_code === 12 && confirmUpPayload;
             const isMissSchExit =
               missingSchematicPromptCard && missSchWrap && !data.background && data.exit_code === 13 && missSchPayload;
+            const isMissDraftExit =
+              missingDraftFilesPromptCard && missDraftWrap && !data.background && data.exit_code === 14 && missDraftPayload;
             if (isConfirmUpExit) {
               const detail = confirmUpPayload.message || "Review the report above, then confirm BOM upload to Arena.";
               const extra = confirmUpPayload.csvName ? ` (${confirmUpPayload.csvName})` : "";
@@ -1228,6 +1287,7 @@
               setDuplicatePromptVisible(false);
               setZipOverwritePromptVisible(false);
               setMissingSchematicPromptVisible(false);
+              setMissingDraftFilesPromptVisible(false);
               setConfirmUploadPromptVisible(true);
             } else if (isDupExit) {
               status.textContent = `Duplicate${code}.`;
@@ -1235,6 +1295,7 @@
               setProceedVisible(false);
               setZipOverwritePromptVisible(false);
               setMissingSchematicPromptVisible(false);
+              setMissingDraftFilesPromptVisible(false);
               setDuplicatePromptVisible(true);
             } else if (isZipOwExit) {
               const detail = zipOwPayload.message || "An existing zip file will be overwritten.";
@@ -1245,6 +1306,7 @@
               setProceedVisible(false);
               setDuplicatePromptVisible(false);
               setMissingSchematicPromptVisible(false);
+              setMissingDraftFilesPromptVisible(false);
               setZipOverwritePromptVisible(true);
             } else if (isMissSchExit) {
               const detail = missSchPayload.message || "Schematic PDF not found.";
@@ -1255,7 +1317,19 @@
               setDuplicatePromptVisible(false);
               setZipOverwritePromptVisible(false);
               setConfirmUploadPromptVisible(false);
+              setMissingDraftFilesPromptVisible(false);
               setMissingSchematicPromptVisible(true);
+            } else if (isMissDraftExit) {
+              const detail = missDraftPayload.message || "No _DRAFT fabrication or Pick & Place zip was found. Send the email anyway?";
+              if (missDraftMsg) missDraftMsg.textContent = detail;
+              status.textContent = `No draft files${code}.`;
+              status.className = "status err";
+              setProceedVisible(false);
+              setDuplicatePromptVisible(false);
+              setZipOverwritePromptVisible(false);
+              setConfirmUploadPromptVisible(false);
+              setMissingSchematicPromptVisible(false);
+              setMissingDraftFilesPromptVisible(true);
             } else {
               status.textContent = `Failed${code}.`;
               status.className = "status err";
@@ -1266,7 +1340,8 @@
                 data.exit_code != null &&
                 data.exit_code !== 0 &&
                 data.exit_code !== 11 &&
-                data.exit_code !== 13;
+                data.exit_code !== 13 &&
+                data.exit_code !== 14;
               setProceedVisible(!!canProceed);
             }
           }
@@ -1359,6 +1434,39 @@
         });
       }
 
+
+      if (missDraftProceed && missDraftCancel) {
+        missDraftCancel.addEventListener("click", () => setMissingDraftFilesPromptVisible(false));
+        missDraftProceed.addEventListener("click", async () => {
+          missDraftProceed.disabled = true;
+          missDraftCancel.disabled = true;
+          rememberAndPropagatePartNumber(form);
+          try {
+            const inputs = readJsonInputsFromForm(form);
+            inputs.allow_missing_draft_files = "1";
+            const res = await fetch(`/api/run/${fnId}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ inputs, workspace: workspaceSel.value }),
+            });
+            const data = await res.json();
+            applyRunOutputToPanel(outputCtx, data);
+            setMissingDraftFilesPromptVisible(false);
+            if (data.ok) {
+              setDoneStatus(status, data);
+            } else {
+              status.textContent = `Failed (${data.exit_code}).`;
+              status.className = "status err";
+            }
+          } catch (err) {
+            status.textContent = "Error";
+            status.className = "status err";
+          } finally {
+            missDraftProceed.disabled = false;
+            missDraftCancel.disabled = false;
+          }
+        });
+      }
 
       if (missSchProceed && missSchCancel) {
         missSchCancel.addEventListener("click", () => setMissingSchematicPromptVisible(false));

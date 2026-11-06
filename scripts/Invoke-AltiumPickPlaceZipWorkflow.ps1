@@ -9,21 +9,25 @@
   Run Build Pick & Place zip (Open-AltiumPartFolder -Open PickPlaceZip).
 
 .PARAMETER UploadToArena
-  Upload or replace "Pick and Place" on the PCBA Arena working revision.
+  Upload or replace "Pick and Place" on the PCBA Arena working revision
+  using the normal zip file name (FINAL).
 
-.PARAMETER UseExistingFile
-  When uploading: use the zip already in the production folder; do not build if missing.
+.PARAMETER UploadAsDraft
+  Same Arena upload as -UploadToArena, after renaming the zip so the file name
+  ends in _DRAFT before the extension. Mutually exclusive with -UploadToArena.
 
 .PARAMETER RevisionOverride
   Optional revision for the zip name (letter + number, e.g. D1). The letter must match the
   revision letter from Altium outputs; the number you specify is used in the zip file name.
+
+  Leave -CreateZip off to upload a zip that is already in the production folder.
 #>
 param(
   [Parameter(Mandatory = $true)] [string]$PartNumber,
   [string]$RevisionOverride = '',
   [switch]$CreateZip,
   [switch]$UploadToArena,
-  [switch]$UseExistingFile,
+  [switch]$UploadAsDraft,
   [switch]$ForceUpload,
   [switch]$ForceZipOverwrite
 )
@@ -37,12 +41,11 @@ foreach ($p in @($openScript, $syncScript)) {
   if (-not (Test-Path -LiteralPath $p)) { throw "Required script missing: $p" }
 }
 
-if (-not $CreateZip -and -not $UploadToArena) {
-  throw 'Enable at least one option: Create Zip and/or Upload Zip File to Arena.'
+if ($UploadToArena -and $UploadAsDraft) {
+  throw 'Select only one Arena upload option: Upload Zip File to Arena FINAL or Upload to Arena as Draft.'
 }
-if ($UseExistingFile -and -not $UploadToArena) {
-  Write-Warning 'Use Existing File only applies when Upload Zip File to Arena is enabled; ignoring.'
-  $UseExistingFile = $false
+if (-not $CreateZip -and -not $UploadToArena -and -not $UploadAsDraft) {
+  throw 'Enable at least one option: Create Zip, Upload Zip File to Arena FINAL, and/or Upload to Arena as Draft.'
 }
 
 $pn = $PartNumber.Trim()
@@ -62,21 +65,26 @@ if ($CreateZip) {
   Invoke-NestedLauncherPowerShell -ArgumentList $openArgs -StepLabel 'Build Pick & Place zip' | Out-Null
 }
 
-if ($UploadToArena) {
+if ($UploadToArena -or $UploadAsDraft) {
   Write-Host ''
-  Write-Host '=== Upload Zip File to Arena (Pick & Place) ==='
-  $syncArgs = @('-File', $syncScript, '-PartNumber', $pn)
+  if ($UploadAsDraft) {
+    Write-Host '=== Upload to Arena as Draft (Pick & Place) ==='
+  } else {
+    Write-Host '=== Upload Zip File to Arena FINAL (Pick & Place) ==='
+  }
+  $syncArgs = @('-File', $syncScript, '-PartNumber', $pn, '-SkipZipBuildIfMissing')
   if (-not [string]::IsNullOrWhiteSpace($RevisionOverride)) {
     $syncArgs += '-RevisionOverride', $RevisionOverride.Trim()
   }
-  if ($CreateZip -or $UseExistingFile) {
-    $syncArgs += '-SkipZipBuildIfMissing'
-  }
-  if ($ForceUpload) {
-    $syncArgs += '-ForceUpload'
-  }
+  if ($UploadAsDraft) { $syncArgs += '-AsDraft' }
+  if ($ForceUpload) { $syncArgs += '-ForceUpload' }
   $syncInvokeArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass') + $syncArgs
-  Invoke-NestedLauncherPowerShell -ArgumentList $syncInvokeArgs -StepLabel 'Upload Pick & Place zip to Arena' | Out-Null
+  $stepLabel = if ($UploadAsDraft) {
+    'Upload Pick & Place zip to Arena as draft'
+  } else {
+    'Upload Pick & Place zip to Arena'
+  }
+  Invoke-NestedLauncherPowerShell -ArgumentList $syncInvokeArgs -StepLabel $stepLabel | Out-Null
 }
 
 Write-Host ''
